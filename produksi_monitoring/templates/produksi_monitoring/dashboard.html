@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Monitoring Produksi</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/custom_admin.css' %}">
+</head>
+<body>
+    <!-- Header dengan Logo -->
+    <header class="dashboard-header">
+        <div class="header-left">
+            <img src="{% static 'img/logo.png' %}" alt="Company Logo">
+            <h1 class="header-title">Sistem Monitoring Produksi</h1>
+        </div>
+        <div class="header-right">
+            <p id="current-time"></p>
+            {% if request.user.is_authenticated %}
+                <p class="header-user">Selamat datang, <strong>{{ request.user.username }}</strong></p>
+            {% endif %}
+        </div>
+    </header>
+
+    <h1 class="page-title">Dashboard Monitoring Proses Produksi</h1>
+
+    <div class="container">
+        <h2>
+            Pilih Ruangan :</h2>
+        <div class="room-grid">
+            {% for ruangan in ruangan_list %}
+                <div class="room-card">
+                    <a href="{% url 'monitoring_per_ruangan' ruangan.nama %}">{{ ruangan.nama }}</a>
+                </div>
+            {% empty %}
+                <p>Tidak ada ruangan yang tersedia.</p>
+            {% endfor %}
+        </div>
+    </div>
+    <script>
+        function updateTime() {
+            var now = new Date();
+            var formattedTime = now.toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' });
+            document.getElementById('current-time').innerText = formattedTime;
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+    </script>
+</body>
+</html>

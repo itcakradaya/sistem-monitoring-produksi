@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitoring Produksi - {{ ruangan.nama }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid black; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        h3 { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h2>Ruangan: {{ ruangan.nama }}</h2>
+
+    <h3>Produk yang Menunggu</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Nama Produk</th>
+                <th>Jumlah</th>
+                <th>Satuan</th>
+                <th>Waktu Dibuat</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for produk in produk_menunggu %}
+            <tr>
+                <td>{{ produk.nama }}</td>
+                <td>{{ produk.jumlah }}</td>
+                <td>{{ produk.get_satuan_display }}</td>
+                <td>{{ produk.waktu_dibuat }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4">Tidak ada produk dalam status ini.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h3>Produk yang Sedang Diproses</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Nama Produk</th>
+                <th>Jumlah</th>
+                <th>Satuan</th>
+                <th>Waktu Dibuat</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for produk in produk_diproses %}
+            <tr>
+                <td>{{ produk.nama }}</td>
+                <td>{{ produk.jumlah }}</td>
+                <td>{{ produk.get_satuan_display }}</td>
+                <td>{{ produk.waktu_dibuat }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4">Tidak ada produk dalam status ini.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h3>Produk yang Selesai</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Nama Produk</th>
+                <th>Jumlah</th>
+                <th>Satuan</th>
+                <th>Waktu Dibuat</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for produk in produk_selesai %}
+            <tr>
+                <td>{{ produk.nama }}</td>
+                <td>{{ produk.jumlah }}</td>
+                <td>{{ produk.get_satuan_display }}</td>
+                <td>{{ produk.waktu_dibuat }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4">Tidak ada produk dalam status ini.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

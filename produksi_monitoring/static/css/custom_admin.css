@@ -1,0 +1,223 @@
+/* General Styles */
+body {
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f6f9;
+    text-align: center;
+}
+
+/* Header Styling */
+header {
+    display: flex;
+    align-items: center;
+    justify-content: left;
+    padding: 20px;
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    border-bottom: 2px solid #004a99;
+}
+
+/* Logo Styling */
+header img {
+    height: 70px;
+    max-height: 20vh;
+    width: auto;
+    margin-right: 15px;
+}
+
+/* H1 (Judul Utama) */
+.page-title {
+    font-size: 1.8vw; /* Ukuran lebih kecil */
+    margin-top: 10px;
+    margin-bottom: 1px; /* Mengurangi jarak ke subtitle */
+    font-weight: bold;
+    color: #333;
+}
+
+/* Subtitle (Pilih Ruangan) */
+.subtitle {
+    font-size: 1.2vw; /* Ukuran lebih kecil */
+    margin-top: 1px; /* Mengurangi jarak ke judul */
+    margin-bottom: 10px;
+    font-weight: normal;
+    color: #555;
+}
+
+/* Container Styling */
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Grid Layout for Room Cards */
+.room-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 10px;
+    margin-top: 5px;
+    padding: 5px 20px;
+}
+
+/* Room Card Styling */
+.room-card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease-in-out;
+}
+
+.room-card:hover {
+    transform: translateY(-5px);
+    background: #e6f0ff;
+}
+
+.room-card a {
+    text-decoration: none;
+    color: #004a99;
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+.room-card a:hover {
+    color: #ff9900;
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+    .page-title {
+        font-size: 3vw; /* Ukuran lebih kecil untuk layar kecil */
+    }
+    .subtitle {
+        font-size: 1.8vw;
+    }
+    .container {
+        width: 90%;
+    }
+}
+
+/* Wrapper utama untuk mengatur posisi tabel */
+.status-tables-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: nowrap; /* Supaya tabel kanan tidak turun ke bawah */
+}
+
+/* Kolom kiri untuk "Menunggu" dan "Sedang Diproses" */
+.status-left {
+    flex: 2;  /* Lebih besar agar bisa memuat 2 tabel */
+    display: flex;
+    flex-direction: column; /* Susun tabel atas-bawah */
+    gap: 15px; /* Jarak antar tabel */
+}
+
+/* Kolom kanan untuk "Selesai" */
+.status-right {
+    flex: 1;  /* Lebih kecil agar tetap di sebelah kanan */
+    
+}
+
+/* Scroll horizontal jika tabel terlalu besar */
+.table-container {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+/* Styling tabel */
+.styled-table {
+    width: 100%;
+    min-width: 750px; /* Cegah tabel terlalu sempit */
+    border-collapse: collapse;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Header tabel */
+.styled-table thead {
+    background-color: #004a99;
+    color: white;
+    font-weight: bold;
+    font-size: 0.9vw;
+    white-space: nowrap;
+}
+
+/* Ukuran teks tabel */
+.styled-table th, .styled-table td {
+    padding: 8px;
+    border: 1px solid #ddd;
+    text-align: center;
+    font-size: 1vw;
+}
+
+/* Alternating row color */
+.styled-table tbody tr:nth-child(even) {
+    background-color: #f4f6f9;
+}
+
+/* Responsiveness */
+@media (max-width: 1024px) {
+    .status-tables-container {
+        flex-direction: column;
+    }
+    .status-left, .status-right {
+        flex: 100%;
+    }
+    .styled-table th, .styled-table td {
+        font-size: 1vw;
+        padding: 6px;
+    }
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: white;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 2px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+}
+
+.header-left img {
+    height: 70px;
+    max-height: 20vh;
+    width: auto;
+    margin-right: 15px;
+}
+
+.header-title {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.header-right {
+    opacity: 0;
+    color: #333;
+    transform: translateY(-10px);
+    animation: fadeIn 0.5s ease-in-out forwards;
+}
+
+@keyframes fadeIn {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.header-user {
+    font-size: 14px;
+    color: #333;
+    margin-top: 5px;
+}
+
