@@ -1,0 +1,66 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Pindahkan Batch</title>
+    <link rel="stylesheet" href="{% static 'css/custom_admin.css' %}">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+        }
+        .popup-container {
+            max-width: 400px;
+            margin: auto;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.2);
+        }
+        .popup-container h3 {
+            margin-bottom: 20px;
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .btn {
+            background-color: hsl(219, 98%, 39%);
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: hsl(219, 90%, 30%);
+        }
+    </style>
+</head>
+<body>
+
+<div class="popup-container">
+    <h3>Pindahkan ke Ruangan</h3>
+    <form method="post">
+        {% csrf_token %}
+        <label>Ruangan Tujuan:</label>
+        <select name="ruangan_tujuan" required>
+            {% for ruangan in ruangan_list %}
+            <option value="{{ ruangan.id }}">{{ ruangan.nama }}</option>
+            {% endfor %}
+        </select>
+        <br>
+        <button type="submit" class="btn">Konfirmasi</button>
+    </form>
+    {% if pindah_sukses %}
+    <script>
+        closePopup();  // Tutup pop-up setelah pemindahan berhasil
+    </script>
+    {% endif %}
+</div>
+</body>
+</html>

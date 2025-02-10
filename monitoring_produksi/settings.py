@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'channels',
     'produksi_monitoring',
+    'django.contrib.humanize',
  
 ]
 

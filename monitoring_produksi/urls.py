@@ -7,5 +7,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('monitoring/', include('produksi_monitoring.urls')),  # Hubungkan ke aplikasi monitoring
 ]
+
+# Jika dalam mode DEBUG, tambahkan URL untuk mengakses file statis dengan aman
 if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATICFILES_DIRS[0])
+    static_dirs = getattr(settings, 'STATICFILES_DIRS', [])
+    if static_dirs:  
+        urlpatterns += static(settings.STATIC_URL, document_root=static_dirs[0])

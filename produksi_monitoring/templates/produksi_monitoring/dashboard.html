@@ -1,12 +1,38 @@
 <!DOCTYPE html>
 {% load static %}
+{% load humanize %}
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard Monitoring Produksi</title>
-    {% load static %}
     <link rel="stylesheet" href="{% static 'css/custom_admin.css' %}">
+    <style>
+        .container {
+            max-width: 800px;
+            margin: auto;
+            text-align: center;
+        }
+        .room-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .room-card {
+            background: rgb(14, 9, 26);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .room-card a {
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
     <!-- Header dengan Logo -->
@@ -26,18 +52,17 @@
     <h1 class="page-title">Dashboard Monitoring Proses Produksi</h1>
 
     <div class="container">
-        <h2>
-            Pilih Ruangan :</h2>
+        <h2>Pilih Ruangan:</h2>
         <div class="room-grid">
             {% for ruangan in ruangan_list %}
                 <div class="room-card">
-                    <a href="{% url 'monitoring_per_ruangan' ruangan.nama %}">{{ ruangan.nama }}</a>
+                    <a href="{% url 'monitoring_per_ruangan' ruangan.nama|slugify %}">{{ ruangan.nama }}</a>
                 </div>
-            {% empty %}
-                <p>Tidak ada ruangan yang tersedia.</p>
             {% endfor %}
+
         </div>
     </div>
+
     <script>
         function updateTime() {
             var now = new Date();

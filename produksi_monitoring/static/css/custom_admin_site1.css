@@ -1,0 +1,161 @@
+/* === Global Styling === */
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f4f7fc;
+}
+
+/* === Sidebar Styling === */
+.module h2 {
+    background: linear-gradient(to right, #003366, #004c99);
+    color: white !important;
+    padding: 12px;
+    font-size: 16px;
+    text-transform: uppercase;
+    border-radius: 5px;
+}
+
+/* Sidebar menu item */
+.module a {
+    color: white !important;
+    background: #0055cc !important;
+    padding: 8px 14px;
+    display: block;
+    border-radius: 5px;
+    margin: 6px 0;
+    transition: all 0.3s ease-in-out;
+    font-weight: bold;
+}
+
+/* Hover efek pada sidebar */
+.module a:hover {
+    background: #ffcc00 !important;
+    color: #003366 !important;
+    text-decoration: none;
+}
+
+/* === Breadcrumb Styling === */
+.breadcrumbs {
+    background: linear-gradient(to right, #003366, #004c99);
+    color: white !important;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+/* Ubah warna teks breadcrumb */
+.breadcrumbs a {
+    color: #ffcc00 !important;
+    font-weight: bold;
+}
+
+/* Hover efek pada breadcrumb */
+.breadcrumbs a:hover {
+    text-decoration: underline;
+    color: #ffffff !important;
+}
+
+/* === Header Dashboard === */
+.dashboard-header {
+    background: linear-gradient(to right, #003366, #004c99);
+    padding: 20px;
+    color: white !important;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 8px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.dashboard-header img {
+    max-height: 50px;
+    margin-right: 15px;
+}
+
+.header-title {
+    font-size: 22px;
+    font-weight: bold;
+    margin: 0;
+}
+
+.header-user {
+    font-size: 15px;
+    color: #ffdd57 !important;
+}
+
+/* === Table Styling === */
+.styled-table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.styled-table th {
+    background: linear-gradient(to right, #004c99, #0055cc);
+    color: white;
+    text-align: center;
+    padding: 12px;
+}
+
+.styled-table td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: center;
+}
+
+/* Baris ganjil memiliki warna lebih soft */
+.styled-table tbody tr:nth-child(odd) {
+    background: #f2f7ff;
+}
+
+/* Hover efek pada baris */
+.styled-table tbody tr:hover {
+    background: #cce5ff !important;
+}
+
+/* === Tombol Aksi === */
+.button {
+    background: #004c99 !important;
+    color: white !important;
+    padding: 10px 15px;
+    border-radius: 5px;
+    border: none;
+    transition: all 0.3s ease-in-out;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
+    font-weight: bold;
+}
+
+.button:hover {
+    background: #ffcc00 !important;
+    color: #003366 !important;
+}
+
+/* === Form Styling === */
+form {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* === Filter Sidebar === */
+.filter {
+    background: #004c99;
+    padding: 15px;
+    border-radius: 8px;
+    color: white;
+    font-weight: bold;
+}
+
+.filter a {
+    color: white;
+    display: block;
+    padding: 6px;
+    border-radius: 5px;
+    transition: all 0.3s ease-in-out;
+}
+
+.filter a:hover {
+    background: #ffcc00;
+    color: #003366;
+}

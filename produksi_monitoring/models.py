@@ -8,7 +8,6 @@ class Mesin(models.Model):
 
     def __str__(self):
         return self.nama_mesin
-
     class Meta:
         verbose_name = "Mesin"
         verbose_name_plural = "Mesin"
@@ -32,7 +31,6 @@ class Ruangan(models.Model):
 
     def __str__(self):
         return self.nama
-
     class Meta:
         verbose_name = "Ruangan"
         verbose_name_plural = "Ruangan"
@@ -47,6 +45,7 @@ class ProsesProduksi(models.Model):
     STATUS_CHOICES = [
         ('Menunggu', 'Menunggu Proses'),
         ('Sedang diproses', 'Sedang Diproses'),
+        ('Siap Dipindahkan', 'Siap Dipindahkan'),
         ('Selesai', 'Selesai'),
     ]
     status = models.CharField(
@@ -56,40 +55,34 @@ class ProsesProduksi(models.Model):
         null=False,
         blank=False,
     )
-    nama = models.ForeignKey(ItemDescription, on_delete=models.CASCADE)
-    nomor_batch = models.CharField(max_length=20, unique=True, blank=True)
+    nama = models.ForeignKey("ItemDescription", on_delete=models.CASCADE)
+    nomor_batch = models.CharField(max_length=20, unique=True, blank=True, null=True)
     jumlah = models.PositiveIntegerField()
     satuan = models.CharField(max_length=10, choices=[
-        ('kg', 'Kilogram'),
-        ('pcs', 'Pieces'),
-        ('liter', 'Liter'),
-        ('pack', 'Pack'),
+        ('kg', 'Kilogram'), ('pcs', 'Pieces'), ('liter', 'Liter'), ('pack', 'Pack'),
     ], default='kg')
-    ruangan = models.ForeignKey(Ruangan, on_delete=models.CASCADE)
-    mesin = models.ManyToManyField(Mesin, related_name="produk")
-    operator = models.CharField(max_length=200, blank=True, null=True)
-    keterangan = models.TextField(blank=True, null=True)
+    ruangan = models.ForeignKey("Ruangan", on_delete=models.CASCADE)
     waktu_dibuat = models.DateTimeField(auto_now_add=True)
     waktu_mulai_produksi = models.DateTimeField(blank=True, null=True)
     waktu_selesai = models.DateTimeField(blank=True, null=True)
 
     def generate_kode_produksi(self):
         """
-        Membuat kode produksi dengan format:
+        Membuat nomor batch dengan format:
         [R/S/T/U]MMDD[A1, A2, ..., A9, A0, B1, ..., B9, B0, ...]
-        Berdasarkan `waktu_mulai_produksi`, bukan waktu input.
         """
         if not self.waktu_mulai_produksi:
-            raise ValueError("Waktu mulai produksi harus ditentukan sebelum generate nomor batch!")
+            raise ValueError("Waktu mulai produksi harus diisi sebelum membuat nomor batch!")
 
         # Konversi tahun ke huruf (2025 = R, 2026 = S, 2027 = T, ...)
         tahun_awal = 2025
         huruf_tahun = chr(ord('R') + (self.waktu_mulai_produksi.year - tahun_awal))
 
+        # Format bulan dan tanggal (MMDD)
         bulan_hari = self.waktu_mulai_produksi.strftime("%m%d")
         prefix = f"{huruf_tahun}{bulan_hari}"
 
-        # Hitung jumlah produksi yang sudah ada pada tanggal tersebut
+        # Hitung jumlah produksi yang sudah ada pada tanggal yang sama
         produksi_hari_ini = ProsesProduksi.objects.filter(
             waktu_mulai_produksi__date=self.waktu_mulai_produksi.date()
         ).count()
@@ -98,28 +91,49 @@ class ProsesProduksi(models.Model):
         kode_list = [f"{huruf}{angka}" for huruf in string.ascii_uppercase for angka in range(1, 10)] + \
                     [f"{huruf}0" for huruf in string.ascii_uppercase]
 
-        # Ambil kode produksi yang sesuai dengan urutan
-        kode_produksi = kode_list[produksi_hari_ini] if produksi_hari_ini < len(kode_list) else "ZZ"
+        if produksi_hari_ini >= len(kode_list):
+            raise ValueError(f"Kode produksi pada {self.waktu_mulai_produksi.date()} telah melebihi batas.")
 
-        return f"{prefix}{kode_produksi}"
+        return f"{prefix}{kode_list[produksi_hari_ini]}"
+
 
     def save(self, *args, **kwargs):
+        # Hanya buat nomor batch jika produksi dimulai di ruangan "Penimbangan"
+        if self.status == "Sedang diproses" and not self.waktu_mulai_produksi:
+            self.waktu_mulai_produksi = now()  # Set waktu mulai otomatis
         if not self.nomor_batch and self.waktu_mulai_produksi:
-            self.nomor_batch = self.generate_kode_produksi()
+            self.nomor_batch = self.generate_kode_produksi()  # Generate batch otomatis
+        if not self.pk:  # Jika proses baru dibuat
+            try:
+                ruang_penimbangan = Ruangan.objects.get(nama__icontains="Penimbangan")
+                self.ruangan = ruang_penimbangan
+            except Ruangan.DoesNotExist:
+                pass  # Jika ruangan tidak ada, biarkan admin memilih sendiri
+
+        # Jika status "Selesai", otomatis pindahkan ke tahap berikutnya jika belum ada
+        if self.status == "Selesai" and self.ruangan.tahap_berikutnya:
+            self.pindah_ke_tahap_berikutnya()
+
         super().save(*args, **kwargs)
 
     def pindah_ke_tahap_berikutnya(self):
-        """Memindahkan batch ke tahap berikutnya jika ada."""
-        if self.status == "Selesai" and self.ruangan.tahap_berikutnya:
-            ProsesProduksi.objects.create(
+        """Jika batch berada di ruang filling atau labelling, pindahkan otomatis"""
+        if self.ruangan.tahap_berikutnya:
+            existing_batch = ProsesProduksi.objects.filter(
                 nomor_batch=self.nomor_batch,
-                nama=self.nama,
-                jumlah=self.jumlah,
-                satuan=self.satuan,
-                status="Menunggu",
-                ruangan=self.ruangan.tahap_berikutnya,
-                waktu_mulai_produksi=now(),
-            )
+                ruangan=self.ruangan.tahap_berikutnya
+            ).exists()
+
+            if not existing_batch:
+                ProsesProduksi.objects.create(
+                    nomor_batch=self.nomor_batch,
+                    nama=self.nama,
+                    jumlah=self.jumlah,
+                    satuan=self.satuan,
+                    status="Menunggu",
+                    ruangan=self.ruangan.tahap_berikutnya,
+                    waktu_mulai_produksi=None,
+                )
 
     def __str__(self):
         return f"{self.nomor_batch} - {self.nama} ({self.get_status_display()})"

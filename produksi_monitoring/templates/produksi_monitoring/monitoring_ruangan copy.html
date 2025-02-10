@@ -1,0 +1,285 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{% static 'css/custom_admin.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* Grid Layout untuk Ruang Penimbangan */
+        .penimbangan-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 10px;
+            align-items: start;
+        }
+        .penimbangan-menunggu {
+            grid-column: 1 / 2;
+            grid-row: 1 / 2;
+        }
+        .penimbangan-diproses {
+            grid-column: 1 / 2;
+            grid-row: 2 / 3;
+        }
+        .penimbangan-selesai {
+            grid-column: 2 / 3;
+            grid-row: 1 / 3;
+        }
+    
+        /* Flexbox Layout untuk Ruangan Lain */
+        .ruangan-container {
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+        }
+        .ruangan-container .card {
+            flex: 1;
+        }
+    
+        /* Styling Card */
+        .card {
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            padding: 15px;
+            background: white;
+        }
+        .card-header {
+            font-size: 18px;
+            font-weight: bold;
+            background-color: hsl(219, 98%, 39%);
+            color: white;
+            padding: 10px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+    
+        /* Styling Tabel */
+        .styled-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+           
+        }
+        .styled-table th, .styled-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+            padding: 5px;
+        }
+        .styled-table th {
+            background-color: hsl(219, 98%, 39%);
+            color: white;
+        }
+    
+        /* Responsiveness */
+        @media (max-width: 768px) {
+            .penimbangan-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto;
+            }
+            .penimbangan-selesai {
+                grid-column: 1 / 2;
+                grid-row: 3 / 4;
+            }
+            .ruangan-container {
+                flex-direction: column;
+            }
+        }
+        .styled-table th:nth-child(1), .styled-table td:nth-child(1) { width: 15%; }
+        .styled-table th:nth-child(2), .styled-table td:nth-child(2) { width: 35%; }
+        .styled-table th:nth-child(3), .styled-table td:nth-child(3) { width: 15%; }
+        .styled-table th:nth-child(4), .styled-table td:nth-child(4) { width: 25%; }
+             
+     
+             
+    </style>
+</head>
+<body>
+    <!-- Header dengan Logo -->
+    <header class="dashboard-header">
+        <div class="header-left">
+            <img src="{% static 'img/logo.png' %}" alt="Company Logo">
+            <h1 class="header-title">Sistem Monitoring Produksi</h1>
+        </div>
+        <div class="header-right">
+            <p id="current-time"></p>
+            {% if request.user.is_authenticated %}
+                <p class="header-user">Selamat datang, <strong>{{ request.user.username }}</strong></p>
+            {% endif %}
+        </div>
+    </header>
+
+    <h1 class="page-title">📊 PROSES PRODUKSI di {{ ruangan.nama }}</h1>
+    <div class="progress-bar-container">
+        <div class="progress-bar"></div>
+    </div>
+    {% if "PENIMBANGAN" in ruangan.nama.upper %}
+    <div class="penimbangan-container">
+        <div class="card penimbangan-menunggu">
+            <div class="card-header">Menunggu ⏳</div>
+            <div class="card-body">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            <th>Waktu Mulai Produksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for produk in proses_menunggu %}
+                        <tr class="status-menunggu">
+                            <td>{{ produk.nomor_batch }}</td>
+                            <td>{{ produk.nama }}</td>
+                            <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                            <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5">Tidak ada proses produksi yang menunggu.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card penimbangan-diproses">
+            <div class="card-header">Sedang Diproses 🔄</div>
+            <div class="card-body">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            <th>Operator</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for produk in proses_diproses %}
+                        <tr class="status-diproses">
+                            <td>{{ produk.nomor_batch }}</td>
+                            <td>{{ produk.nama }}</td>
+                            <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                            <td>{{ produk.operator|default:"-" }}</td>
+                            <td>
+                                <form action="{% url 'tandai_siap_dipindahkan' produk.id %}" method="post">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-warning">Tandai Siap Dipindahkan</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5">Tidak ada proses produksi yang sedang diproses.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card penimbangan-selesai">
+            <div class="card-header">Selesai ✅</div>
+            <div class="card-body">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            <th>Waktu Selesai</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for produk in proses_selesai %}
+                        <tr class="status-selesai">
+                            <td>{{ produk.nomor_batch }}</td>
+                            <td>{{ produk.nama }}</td>
+                            <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                            <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                        </tr>   
+                        {% empty %}
+                        <tr><td colspan="5">Tidak ada proses produksi selesai dalam satu bulan terakhir.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="ruangan-container">
+        <div class="card">
+            <div class="card-header">Sedang Diproses 🔄</div>
+            <div class="card-body">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            <th>Operator</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for produk in proses_diproses %}
+                        <tr class="status-diproses">
+                            <td>{{ produk.nomor_batch }}</td>
+                            <td>{{ produk.nama }}</td>
+                            <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                            <td>{{ produk.operator|default:"-" }}</td>
+                            <td>
+                                <form action="{% url 'tandai_siap_dipindahkan' produk.id %}" method="post">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-warning">Tandai Siap Dipindahkan</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5">Tidak ada proses produksi yang sedang diproses.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Selesai ✅</div>
+            <div class="card-body">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            <th>Waktu Selesai</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for produk in proses_selesai %}
+                        <tr class="status-selesai">
+                            <td>{{ produk.nomor_batch }}</td>
+                            <td>{{ produk.nama }}</td>
+                            <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                            <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5">Tidak ada proses produksi selesai.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endif %}
+    <script>
+        function updateTime() {
+            var now = new Date();
+            var formattedTime = now.toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' });
+            document.getElementById('current-time').innerText = formattedTime;
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+    </script>
+</body>
+</html>
