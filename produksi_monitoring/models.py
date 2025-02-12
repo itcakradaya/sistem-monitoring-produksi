@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.timezone import now
 import string
+from django.core.exceptions import ValidationError
 
 class Mesin(models.Model):
     kode_mesin = models.CharField(max_length=10, unique=True, null=True)
@@ -36,6 +37,7 @@ class Ruangan(models.Model):
         verbose_name_plural = "Ruangan"
 
 class ItemDescription(models.Model):
+    barcode = models.CharField(max_length=20, unique=True, null=True, blank=True)
     description = models.CharField(max_length=255, unique=True)
 
     def __str__(self):
@@ -56,7 +58,12 @@ class ProsesProduksi(models.Model):
         blank=False,
     )
     nama = models.ForeignKey("ItemDescription", on_delete=models.CASCADE)
-    nomor_batch = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    nomor_batch = models.CharField(
+        max_length=20, 
+        unique=True, 
+        blank=True, 
+        null=False
+    )
     jumlah = models.PositiveIntegerField()
     satuan = models.CharField(max_length=10, choices=[
         ('kg', 'Kilogram'), ('pcs', 'Pieces'), ('liter', 'Liter'), ('pack', 'Pack'),
@@ -66,43 +73,18 @@ class ProsesProduksi(models.Model):
     waktu_mulai_produksi = models.DateTimeField(blank=True, null=True)
     waktu_selesai = models.DateTimeField(blank=True, null=True)
 
-    def generate_kode_produksi(self):
-        """
-        Membuat nomor batch dengan format:
-        [R/S/T/U]MMDD[A1, A2, ..., A9, A0, B1, ..., B9, B0, ...]
-        """
-        if not self.waktu_mulai_produksi:
-            raise ValueError("Waktu mulai produksi harus diisi sebelum membuat nomor batch!")
-
-        # Konversi tahun ke huruf (2025 = R, 2026 = S, 2027 = T, ...)
-        tahun_awal = 2025
-        huruf_tahun = chr(ord('R') + (self.waktu_mulai_produksi.year - tahun_awal))
-
-        # Format bulan dan tanggal (MMDD)
-        bulan_hari = self.waktu_mulai_produksi.strftime("%m%d")
-        prefix = f"{huruf_tahun}{bulan_hari}"
-
-        # Hitung jumlah produksi yang sudah ada pada tanggal yang sama
-        produksi_hari_ini = ProsesProduksi.objects.filter(
-            waktu_mulai_produksi__date=self.waktu_mulai_produksi.date()
-        ).count()
-
-        # Buat daftar kode produksi (A1, A2, ..., A9, A0, B1, ..., B9, B0, ...)
-        kode_list = [f"{huruf}{angka}" for huruf in string.ascii_uppercase for angka in range(1, 10)] + \
-                    [f"{huruf}0" for huruf in string.ascii_uppercase]
-
-        if produksi_hari_ini >= len(kode_list):
-            raise ValueError(f"Kode produksi pada {self.waktu_mulai_produksi.date()} telah melebihi batas.")
-
-        return f"{prefix}{kode_list[produksi_hari_ini]}"
-
+    def clean(self):
+        """Cek apakah nomor batch sudah ada di database, tapi hanya saat batch dibuat"""
+        if not self.pk:
+            if ProsesProduksi.objects.filter(nomor_batch=self.nomor_batch).exists():
+                 raise ValidationError({"nomor_batch": "Nomor batch ini sudah digunakan. Silakan gunakan nomor batch lain."})
 
     def save(self, *args, **kwargs):
+        self.clean()
         # Hanya buat nomor batch jika produksi dimulai di ruangan "Penimbangan"
         if self.status == "Sedang diproses" and not self.waktu_mulai_produksi:
             self.waktu_mulai_produksi = now()  # Set waktu mulai otomatis
-        if not self.nomor_batch and self.waktu_mulai_produksi:
-            self.nomor_batch = self.generate_kode_produksi()  # Generate batch otomatis
+      
         if not self.pk:  # Jika proses baru dibuat
             try:
                 ruang_penimbangan = Ruangan.objects.get(nama__icontains="Penimbangan")
@@ -125,7 +107,7 @@ class ProsesProduksi(models.Model):
             ).exists()
 
             if not existing_batch:
-                ProsesProduksi.objects.create(
+                ProsesProduksi.objects.filter(nomor_batch=self.nomor_batch).update(
                     nomor_batch=self.nomor_batch,
                     nama=self.nama,
                     jumlah=self.jumlah,

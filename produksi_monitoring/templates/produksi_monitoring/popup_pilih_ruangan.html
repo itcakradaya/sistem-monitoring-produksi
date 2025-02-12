@@ -58,7 +58,9 @@
     </form>
     {% if pindah_sukses %}
     <script>
-        closePopup();  // Tutup pop-up setelah pemindahan berhasil
+        setTimeout(function() {
+            closePopup();
+        }, 1000);
     </script>
     {% endif %}
 </div>

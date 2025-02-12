@@ -30,7 +30,7 @@ def monitoring_produksi_per_ruangan(request, ruangan_nama):
     # 🔹 Ambil batch yang pernah diproses di ruangan ini
     batch_yang_pernah_di_ruangan = ProsesProduksi.objects.filter(
         nomor_batch__in=ProsesProduksi.objects.filter(
-            uangan__nama=ruangan_nama
+            ruangan__nama=ruangan_nama
         ).values_list('nomor_batch', flat=True)
     ).values_list('nomor_batch', flat=True).distinct()
 
@@ -126,3 +126,34 @@ def pindahkan_batch_ke_ruangan(request, produksi_id):
 
     ruangan_list = Ruangan.objects.exclude(id=produksi.ruangan.id)
     return render(request, "produksi_monitoring/popup_pindah_ruangan.html", {"produksi": produksi, "ruangan_list": ruangan_list})
+
+def pilih_ruangan_proses(request):
+    """Popup untuk memilih ruangan tujuan jika batch berasal dari Ruang Penimbangan."""
+    batch_ids = request.session.get('batch_to_move', [])
+
+    if not batch_ids:
+        return redirect("admin:produksi_monitoring_prosesproduksi_changelist")
+
+    batch_list = ProsesProduksi.objects.filter(pk__in=batch_ids)
+
+    # **🔹 Cek apakah ada ruangan untuk tujuan proses**
+    ruangan_list = Ruangan.objects.exclude(nama__icontains="penimbangan")  # Jangan tampilkan ruang penimbangan
+
+    if request.method == "POST":
+        ruangan_id = request.POST.get("ruangan_tujuan")
+        ruangan_tujuan = get_object_or_404(Ruangan, id=ruangan_id)
+
+        for batch in batch_list:
+            batch.ruangan = ruangan_tujuan
+            batch.status = "Menunggu"
+            batch.waktu_mulai_produksi = None
+            batch.waktu_selesai = now()
+            batch.save()
+
+        del request.session['batch_to_move']  # Hapus session setelah diproses
+        return redirect("admin:produksi_monitoring_prosesproduksi_changelist")
+
+    return render(request, "produksi_monitoring/popup_pilih_ruangan.html", {
+        "batch_list": batch_list, 
+        "ruangan_list": ruangan_list  # ✅ Pastikan variabel ini dikirim
+    })
