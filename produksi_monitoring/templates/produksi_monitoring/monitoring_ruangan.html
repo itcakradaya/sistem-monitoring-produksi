@@ -61,6 +61,7 @@
         @media (max-width: 768px) {
             .ruangan-container { grid-template-columns: 1fr; }
         }
+       
     </style>
 </head>
 <body>
@@ -76,8 +77,13 @@
             {% endif %}
         </div>
     </header>
+    <div>
+        <h1 class="page-title">📊 PROSES PRODUKSI di {{ ruangan.nama }}</h1>
+        <p id="tanggal-waktu" style="text-align: center; font-size: 23px; font-weight: bold; color: #333; margin-top: 10px;"></p>
 
-    <h1 class="page-title">📊 PROSES PRODUKSI di {{ ruangan.nama }}</h1>
+    </div>
+ 
+    
     
     <div class="ruangan-container">
         <!-- Menunggu -->
@@ -110,7 +116,7 @@
             <div class="card-body">
                 <table class="styled-table">
                     <thead>
-                        <tr><th>Nomor Batch</th><th>Nama Produk</th><th>Jumlah</th><th>Operator</th></tr>
+                        <tr><th>Nomor Batch</th><th>Nama Produk</th><th>Jumlah</th>{% if proses_diproses|length > 0 %}<th>Operator</th>{% endif %}</tr>
                     </thead>
                     <tbody>
                         {% for produk in proses_diproses %}
@@ -118,7 +124,9 @@
                             <td>{{ produk.nomor_batch }}</td>
                             <td>{{ produk.nama }}</td>
                             <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
-                            <td>{{ produk.operator|default:"-" }}</td>
+                            {% if produk.operator %}
+                            <td>{{ produk.operator }}</td>
+                            {% endif %}
                         </tr>
                         {% empty %}
                         <tr><td colspan="4">Tidak ada proses produksi yang sedang diproses.</td></tr>
@@ -127,29 +135,61 @@
                 </table>
             </div>
         </div>
-
-        <div class="card">
-            <div class="card-header">Selesai Produksi ✅</div>
-            <div class="card-body">
-                <table class="styled-table">
-                    <thead>
-                        <tr><th>Nomor Batch</th><th>Nama Produk</th><th>Jumlah</th><th>Waktu Selesai</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for produk in proses_selesai %}
-                        <tr class="status-selesai">
-                            <td>{{ produk.nomor_batch }}</td>
-                            <td>{{ produk.nama }}</td>
-                            <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
-                            <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
-                        </tr>
-                        {% empty %}
-                        <tr><td colspan="4">Tidak ada produksi yang selesai di ruangan ini.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        <!-- Selesai Produksi -->
+<!-- Selesai Produksi -->
+<div class="card card-selesai">
+    <div class="card-header">Selesai Produksi ✅</div>
+    <div class="card-body">
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>Nomor Batch</th>
+                    <th>Nama Produk</th>
+                    <th>Jumlah</th>
+                    <th>Waktu Selesai</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for produk in proses_selesai %}
+                <tr class="status-selesai">
+                    <td>{{ produk.nomor_batch }}</td>
+                    <td>{{ produk.nama.description }}</td>
+                    <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                    <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">Tidak ada produksi yang selesai di ruangan ini.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
+</div>
+     
+    </div>
+    <script>
+        function updateDateTime() {
+            var now = new Date();
+            
+            // Format hari dan bulan dalam bahasa Indonesia
+            var hari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+            var bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    
+            var namaHari = hari[now.getDay()];
+            var tanggal = now.getDate();
+            var namaBulan = bulan[now.getMonth()];
+            var tahun = now.getFullYear();
+            var jam = now.getHours().toString().padStart(2, '0');
+            var menit = now.getMinutes().toString().padStart(2, '0');
+            var detik = now.getSeconds().toString().padStart(2, '0');
+    
+            var waktuFormatted = `${namaHari}, ${tanggal} ${namaBulan} ${tahun} ${jam}:${menit}:${detik}`;
+            document.getElementById("tanggal-waktu").innerText = waktuFormatted;
+        }
+    
+        setInterval(updateDateTime, 1000);
+        updateDateTime();
+    </script>
+        
 </body>
+
 </html>

@@ -1,8 +1,9 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from django.utils.timezone import now
+from django.utils.timezone import now 
 from django.urls import reverse
 from django.utils.text import slugify
 from .models import Ruangan, ProsesProduksi
+
 
 def dashboard(request):
     """Menampilkan daftar ruangan produksi yang tersedia."""
@@ -10,9 +11,13 @@ def dashboard(request):
     context = {'ruangan_list': ruangan_list}
     return render(request, 'produksi_monitoring/dashboard.html', context)
 
-def monitoring_produksi_per_ruangan(request, ruangan_nama):
-    """Menampilkan daftar produksi di ruangan tertentu, termasuk batch yang pernah melewati ruangan ini."""
+def monitoring_ruangan(request, ruangan_nama):
+    """Menampilkan monitoring produksi untuk ruangan tertentu."""
     ruangan = get_object_or_404(Ruangan, nama__iexact=ruangan_nama.replace("-", " "))
+
+    
+
+    print(f"DEBUG: Ruangan ditemukan -> {ruangan}")
 
     # 🔄 Perbarui status otomatis jika waktu mulai produksi telah tercapai
     updated_count = ProsesProduksi.objects.filter(
@@ -21,40 +26,39 @@ def monitoring_produksi_per_ruangan(request, ruangan_nama):
 
     print(f"DEBUG: {updated_count} item diperbarui menjadi 'Sedang Diproses'.")
 
-    # 🔥 Ambil data produksi saat ini di ruangan ini
+    # 🔥 Ambil ulang data setelah update agar perubahan status terbaca
     proses_produksi = ProsesProduksi.objects.filter(ruangan=ruangan)
     menunggu = proses_produksi.filter(status="Menunggu").order_by('waktu_mulai_produksi')
     diproses = proses_produksi.filter(status="Sedang Diproses").order_by('waktu_mulai_produksi')
     siap_pindah = proses_produksi.filter(status="Siap Dipindahkan").order_by('-waktu_selesai')
 
-    # 🔹 Ambil batch yang pernah diproses di ruangan ini
+    # 🔹 **Ambil semua batch yang pernah diproses di ruangan ini**
     batch_yang_pernah_di_ruangan = ProsesProduksi.objects.filter(
-        nomor_batch__in=ProsesProduksi.objects.filter(
-            ruangan__nama=ruangan_nama
-        ).values_list('nomor_batch', flat=True)
+        ruangan=ruangan
     ).values_list('nomor_batch', flat=True).distinct()
 
-    # 🔹 Ambil riwayat produksi untuk batch tersebut, meskipun selesai di ruangan lain
+    # 🔹 **Ambil batch yang sudah selesai di sistem dan tampilkan di semua ruangan**
     selesai = ProsesProduksi.objects.filter(
         nomor_batch__in=batch_yang_pernah_di_ruangan,
-        status__in=["Selesai", "Selesai Produksi"]
-    ).order_by('-waktu_selesai')
+        status="Selesai Produksi"
+    ).select_related('nama', 'ruangan').order_by('-waktu_selesai')
 
-    print(f"DEBUG: Ruangan: {ruangan_nama}, Total Selesai: {selesai.count()}")
+    print(f"DEBUG: {ruangan_nama} - Menunggu: {menunggu.count()}, Sedang Diproses: {diproses.count()}, "
+          f"Siap Dipindahkan: {siap_pindah.count()}, Selesai: {selesai.count()}")
+
     for produk in selesai:
-        print(f"DEBUG: Batch: {produk.nomor_batch}, Selesai di {produk.ruangan.nama}, Waktu: {produk.waktu_selesai}")
+        print(f"DEBUG: {produk.nomor_batch} | {produk.nama.description} | {produk.jumlah} {produk.satuan} | {produk.waktu_selesai} | {produk.ruangan.nama}")
 
     context = {
         "ruangan": ruangan,
         "proses_menunggu": menunggu,
         "proses_diproses": diproses,
         "proses_siap_pindah": siap_pindah,
-        "proses_selesai": selesai,  # ⬅️ Tampilkan batch yang pernah melewati ruangan ini
+        "proses_selesai": selesai,  # ✅ Pastikan batch selesai dikirim ke template
     }
-    return render(request, 'produksi_monitoring/monitoring_ruangan.html', context)
+    return render(request, "produksi_monitoring/monitoring_ruangan.html", context)
 
-
-def monitoring_ruangan(request, ruangan_nama):
+def monitoring_produksi_per_ruangan(request, ruangan_nama):
     """Menampilkan monitoring produksi untuk ruangan tertentu."""
     ruangan = get_object_or_404(Ruangan, nama__iexact=ruangan_nama.replace("-", " "))
 
@@ -69,26 +73,33 @@ def monitoring_ruangan(request, ruangan_nama):
 
     # 🔥 Ambil ulang data setelah update agar perubahan status terbaca
     proses_produksi = ProsesProduksi.objects.filter(ruangan=ruangan)
-
     menunggu = proses_produksi.filter(status="Menunggu").order_by('waktu_mulai_produksi')
     diproses = proses_produksi.filter(status="Sedang Diproses").order_by('waktu_mulai_produksi')
     siap_pindah = proses_produksi.filter(status="Siap Dipindahkan").order_by('-waktu_selesai')
 
-    # 🔹 Ambil semua batch yang pernah diproses di ruangan ini
+    # 🔹 **Ambil semua batch yang pernah diproses di ruangan ini**
+    batch_yang_pernah_di_ruangan = ProsesProduksi.objects.filter(
+        nomor_batch__in=ProsesProduksi.objects.filter(ruangan=ruangan).values_list('nomor_batch', flat=True)
+    ).values_list('nomor_batch', flat=True).distinct()
+
+    # 🔹 **Ambil batch yang sudah selesai di sistem**
     selesai = ProsesProduksi.objects.filter(
-        nomor_batch__in=proses_produksi.values_list('nomor_batch', flat=True),
-        status__in=["Selesai", "Selesai Produksi"]
+        nomor_batch__in=batch_yang_pernah_di_ruangan,
+        status="Selesai Produksi"
     ).order_by('-waktu_selesai')
 
     print(f"DEBUG: {ruangan_nama} - Menunggu: {menunggu.count()}, Sedang Diproses: {diproses.count()}, "
-          f"Siap Dipindahkan: {siap_pindah.count()}, Selesai (di semua ruangan): {selesai.count()}")
+          f"Siap Dipindahkan: {siap_pindah.count()}, Selesai di Labelling: {selesai.count()}")
+
+    for produk in selesai:
+        print(f"DEBUG: {produk.nomor_batch} | {produk.nama} | {produk.jumlah} {produk.satuan} | {produk.waktu_selesai}")
 
     context = {
         "ruangan": ruangan,
         "proses_menunggu": menunggu,
         "proses_diproses": diproses,
         "proses_siap_pindah": siap_pindah,
-        "proses_selesai": selesai,  # ⬅️ Memastikan batch selesai selalu muncul
+        "proses_selesai": selesai,  # ✅ Sekarang semua ruangan bisa melihat batch yang pernah diproses di sini
     }
     return render(request, "produksi_monitoring/monitoring_ruangan.html", context)
 

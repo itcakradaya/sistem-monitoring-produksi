@@ -80,6 +80,11 @@ def tandai_sedang_diproses(modeladmin, request, queryset):
         modeladmin.message_user(request, "Pastikan batch berstatus 'Menunggu'.", level="error")
 
 ### **Aksi: "Tandai Selesai & Pindahkan ke Ruangan Berikutnya"**
+from django.utils import timezone
+from django.shortcuts import redirect
+from django.contrib import admin
+from produksi_monitoring.models import ProsesProduksi
+
 @admin.action(description="Tandai Selesai & Pindahkan ke Ruangan Berikutnya")
 def tandai_selesai_dan_pindah(modeladmin, request, queryset):
     batch_penimbangan = []
@@ -98,23 +103,31 @@ def tandai_selesai_dan_pindah(modeladmin, request, queryset):
                 modeladmin.message_user(request, f"Batch {proses.nomor_batch} sudah ada di {proses.ruangan.tahap_berikutnya.nama}.", level="warning")
                 continue
 
-            # **Tandai sebagai selesai dan pindahkan otomatis**
-            proses.status = "Menunggu"
-            proses.waktu_mulai_produksi = None
-            proses.waktu_selesai = timezone.now()
+            # ✅ Pindahkan batch ke tahap berikutnya
             proses.ruangan = proses.ruangan.tahap_berikutnya
+
+            # ✅ Jika ruangan berikutnya adalah Penimbangan, ubah status ke "Menunggu"
+            if "penimbangan" in proses.ruangan.nama.lower():
+                proses.status = "Menunggu"
+                proses.waktu_mulai_produksi = None
+            else:
+                # ✅ Jika bukan, langsung tandai sebagai "Sedang Diproses"
+                proses.status = "Sedang Diproses"
+                proses.waktu_mulai_produksi = timezone.now()
+
+            # Simpan perubahan
+            proses.waktu_selesai = timezone.now()
             proses.save()
 
-    # **2️⃣ Jika Ada Batch dari Penimbangan, Arahkan ke Pemilihan Ruangan**
+            modeladmin.message_user(request, f"Batch {proses.nomor_batch} berhasil dipindahkan ke {proses.ruangan.nama}.", level="success")
+
+    # **2️⃣ Jika Batch Berasal dari Penimbangan, Arahkan ke Pemilihan Ruangan**
     if batch_penimbangan:
-        for batch_id in batch_penimbangan:
-            ProsesProduksi.objects.filter(pk=batch_id).update(
-                status="Menunggu",
-                waktu_mulai_produksi=None
-            )
-        return redirect("pilih_ruangan_proses")
-    
+        request.session['batch_to_move'] = batch_penimbangan
+        return redirect("pilih_ruangan_proses")  # Arahkan ke halaman pemilihan ruangan
+
     modeladmin.message_user(request, "Batch telah berhasil dipindahkan ke tahap berikutnya.")
+
     
 
 @admin.action(description="Pilih Ruangan Tujuan untuk Batch dari Penimbangan")
@@ -149,6 +162,7 @@ class ProsesProduksiAdmin(admin.ModelAdmin):
     list_display = ('nomor_batch', 'nama', 'ruangan', 'status_display', 'jumlah', 'satuan', 'waktu_dibuat', 'get_waktu_selesai', 'tahap_berikutnya', 'tombol_pindahkan')
     list_filter = ('status', 'ruangan')
     ordering = ('-waktu_dibuat',)
+    operator = ProsesProduksi.operator
     readonly_fields = ('waktu_selesai',)
 
     # ✅ Tambahkan aksi "Tandai Selesai Produksi"

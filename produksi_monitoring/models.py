@@ -49,6 +49,7 @@ class ProsesProduksi(models.Model):
         ('Sedang diproses', 'Sedang Diproses'),
         ('Siap Dipindahkan', 'Siap Dipindahkan'),
         ('Selesai', 'Selesai'),
+        ('Selesai Produksi', 'Selesai Produksi'),
     ]
     status = models.CharField(
         max_length=20,
@@ -72,6 +73,7 @@ class ProsesProduksi(models.Model):
     waktu_dibuat = models.DateTimeField(auto_now_add=True)
     waktu_mulai_produksi = models.DateTimeField(blank=True, null=True)
     waktu_selesai = models.DateTimeField(blank=True, null=True)
+    operator = models.CharField(max_length=20, blank=True, null=True)
 
     def clean(self):
         """Cek apakah nomor batch sudah ada di database, tapi hanya saat batch dibuat"""
