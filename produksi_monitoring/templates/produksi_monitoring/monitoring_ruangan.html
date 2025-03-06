@@ -6,11 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{% static 'css/custom_admin.css' %}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        .container {
-            display: grid;
-            gap: 10px;
-            align-items: start;
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #f3f4f6;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+
+        .cont {
+            max-width: 1100px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
         }
 
         .ruangan-container {
@@ -92,7 +103,12 @@
             <div class="card-body">
                 <table class="styled-table">
                     <thead>
-                        <tr><th>Nomor Batch</th><th>Nama Produk</th><th>Jumlah</th><th>Waktu Mulai Produksi</th></tr>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            <th>Operator</th>
+                        </tr>
                     </thead>
                     <tbody>
                         {% for produk in proses_menunggu %}
@@ -100,7 +116,21 @@
                             <td>{{ produk.nomor_batch }}</td>
                             <td>{{ produk.nama }}</td>
                             <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
-                            <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
+                            <td>{{ produk.operator }}</td>
+                            <td>
+                                {% if request.user.is_authenticated %}
+                                    {% if request.user.is_superuser or is_operator %}   
+                                        {% if produk.status == "Menunggu" %}
+                                            <form action="{% url 'tandai_sedang_diproses' produk.id %}" method="POST">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-warning">Tandai Sedang Diproses</button>
+                                            </form>
+                                        {% else %}
+                                            <span>Status: {{ produk.status }}</span>
+                                        {% endif %}
+                                    {% endif %}
+                                {% endif %}
+                            </td>
                         </tr>
                         {% empty %}
                         <tr><td colspan="4">Tidak ada proses produksi yang menunggu.</td></tr>
@@ -116,7 +146,17 @@
             <div class="card-body">
                 <table class="styled-table">
                     <thead>
-                        <tr><th>Nomor Batch</th><th>Nama Produk</th><th>Jumlah</th>{% if proses_diproses|length > 0 %}<th>Operator</th>{% endif %}</tr>
+                        <tr>
+                            <th>Nomor Batch</th>
+                            <th>Nama Produk</th>
+                            <th>Jumlah</th>
+                            {% if proses_diproses|length > 0 %}
+                            <th>Operator</th>
+                            {% endif %}
+                            <th>Waktu Mulai Produksi</th>
+                            <th>Progress</th>
+                            <th>Keterangan</th>
+                        </tr>
                     </thead>
                     <tbody>
                         {% for produk in proses_diproses %}
@@ -124,12 +164,26 @@
                             <td>{{ produk.nomor_batch }}</td>
                             <td>{{ produk.nama }}</td>
                             <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
-                            {% if produk.operator %}
-                            <td>{{ produk.operator }}</td>
-                            {% endif %}
+                            <td>{{ produk.operator.nama }}</td>
+                            <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
+                            <td>
+                                <form method="POST" action="{% url 'update_progress' produk.id %}">
+                                    {% csrf_token %}
+                                    <input type="number" name="jumlah_terproses" min="1" max="{{ produk.jumlah }}" value="{{ produk.progress }}" required>
+                                    <button type="submit">Update</button>
+                                </form>
+                                <small>{{ produk.progress }} / {{ produk.jumlah }} {{ produk.satuan }}</small>
+                            </td>
+                            <td>
+                                {% if produk.progress < produk.jumlah %}
+                                    <span>⏳ Masih diproses</span>
+                                {% else %}
+                                    <span>✅ Selesai</span>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="4">Tidak ada proses produksi yang sedang diproses.</td></tr>
+                        <tr><td colspan="7">Tidak ada proses produksi yang sedang diproses.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -138,7 +192,7 @@
         <!-- Selesai Produksi -->
 <!-- Selesai Produksi -->
 <div class="card card-selesai">
-    <div class="card-header">Selesai Produksi ✅</div>
+    <div class="card-header">Riwayat Produksi di Ruangan Ini ✅</div>
     <div class="card-body">
         <table class="styled-table">
             <thead>
@@ -147,6 +201,8 @@
                     <th>Nama Produk</th>
                     <th>Jumlah</th>
                     <th>Waktu Selesai</th>
+                    <th>Status Akhir</th>
+                    <th>Diproses di Ruangan</th>
                 </tr>
             </thead>
             <tbody>
@@ -156,14 +212,18 @@
                     <td>{{ produk.nama.description }}</td>
                     <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
                     <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                    <td>{{ produk.status }}</td>
+                    <td>{{ produk.ruangan.nama }}</td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="5">Tidak ada produksi yang selesai di ruangan ini.</td></tr>
+                <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
+
+
      
     </div>
     <script>

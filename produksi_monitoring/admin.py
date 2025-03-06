@@ -4,10 +4,17 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse, path
 from django.utils import timezone
 from django import forms
+from django.contrib import messages
 from produksi_monitoring.models import ItemDescription, ProsesProduksi, Ruangan, Mesin
 from django.core.exceptions import ValidationError
+from .models import ProsesProduksi, Operator
 
 admin.site.index_title = "Manajemen Proses Produksi"
+
+@admin.register(Operator)
+class OperatorAdmin(admin.ModelAdmin):
+    list_display = ('nama', 'kategori')
+    search_fields = ('nama', 'kategori')
 
 @admin.register(Ruangan)
 class RuanganAdmin(admin.ModelAdmin):
@@ -154,9 +161,36 @@ def tandai_selesai_produksi(modeladmin, request, queryset):
     else:
         modeladmin.message_user(request, "Pastikan batch berada di tahap akhir (Ruang Labelling) dan berstatus 'Sedang Diproses'.", level="error")
 
+
+@admin.action(description="Verifikasi & Pindahkan ke Ruangan Berikutnya")
+def verifikasi_dan_pindah(modeladmin, request, queryset):
+    batch_valid = []
+
+    for proses in queryset:
+        if proses.status == "Menunggu Verifikasi Admin":
+            batch_valid.append(proses)
+
+    if not batch_valid:
+        modeladmin.message_user(request, "Tidak ada batch yang bisa dipindahkan. Pastikan operator sudah menandai selesai.", level="error")
+        return
+
+    for proses in batch_valid:
+        if proses.ruangan.tahap_berikutnya:
+            if ProsesProduksi.objects.filter(nomor_batch=proses.nomor_batch, ruangan=proses.ruangan.tahap_berikutnya).exists():
+                modeladmin.message_user(request, f"Batch {proses.nomor_batch} sudah ada di {proses.ruangan.tahap_berikutnya.nama}.", level="warning")
+                continue
+
+            # ✅ Pindahkan ke ruangan berikutnya
+            proses.status = "Menunggu"
+            proses.waktu_mulai_produksi = None
+            proses.ruangan = proses.ruangan.tahap_berikutnya
+            proses.save()
+
+    modeladmin.message_user(request, "Batch berhasil dipindahkan ke tahap berikutnya.")
+
 @admin.register(ProsesProduksi)
 class ProsesProduksiAdmin(admin.ModelAdmin):
-    autocomplete_fields = ['nama']
+    autocomplete_fields = ['nama','operator']
     search_fields = ['nama__description', 'nomor_batch']
     form = ProsesProduksiForm
     list_display = ('nomor_batch', 'nama', 'ruangan', 'status_display', 'jumlah', 'satuan', 'waktu_dibuat', 'get_waktu_selesai', 'tahap_berikutnya', 'tombol_pindahkan')
@@ -164,6 +198,11 @@ class ProsesProduksiAdmin(admin.ModelAdmin):
     ordering = ('-waktu_dibuat',)
     operator = ProsesProduksi.operator
     readonly_fields = ('waktu_selesai',)
+
+    def save_model(self, request, obj, form, change):
+        if not obj.operator:
+            raise ValidationError("Operator wajib dipilih!")
+        super().save_model(request, obj, form, change)
 
     # ✅ Tambahkan aksi "Tandai Selesai Produksi"
     actions = [tandai_sedang_diproses, tandai_selesai_dan_pindah, tandai_selesai_produksi]
@@ -180,36 +219,54 @@ class ProsesProduksiAdmin(admin.ModelAdmin):
         return obj.ruangan.tahap_berikutnya.nama if obj.ruangan.tahap_berikutnya else "Tahap Akhir"
     tahap_berikutnya.short_description = "Tahap Berikutnya"
 
+        # ✅ Menambahkan tombol "Pindahkan" ke Django Admin
+    # ✅ **Menambahkan Tombol "Pindahkan" di Django Admin**
     def tombol_pindahkan(self, obj):
-        if obj.status == "Selesai" and obj.ruangan.jenis_proses == 'weighing':
-            url = reverse("pindahkan_batch_ke_ruangan", args=[obj.pk])
-            return format_html(
-                '<a href="{}" onclick="window.open(this.href, \"pindah_ruangan\", \"width=600,height=400\"); return false;" '
-                'class="btn btn-primary">Pilih Ruangan Proses</a>', url
-            )
+        if obj.status == "Menunggu Verifikasi Admin":
+            url = reverse("pindahkan_batch_ke_ruangan", args=[obj.nomor_batch])
+            return format_html('<a href="{}" class="button">Pindahkan</a>', url)
         return format_html('<span class="text-muted">Tidak Bisa Dipindahkan</span>')
-    tombol_pindahkan.short_description = "Aksi"
 
+    tombol_pindahkan.short_description = "Pindah Ruangan"
+
+    # ✅ **Tambahkan URL Baru untuk Pemindahan Batch**
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('pindahkan_batch/<int:pk>/', self.admin_site.admin_view(self.pindahkan_produksi), name="pindahkan_batch_ke_ruangan"),
+            path('pindahkan_batch/<str:nomor_batch>/', self.admin_site.admin_view(self.pindahkan_produksi), name="pindahkan_batch_ke_ruangan"),
         ]
         return custom_urls + urls
 
-    def pindahkan_produksi(self, request, pk):
-        produksi = get_object_or_404(ProsesProduksi, pk=pk)
+    # ✅ **Form Pemindahan Batch Tanpa Popup**
+    def pindahkan_produksi(self, request, nomor_batch):
+        produksi = get_object_or_404(ProsesProduksi, nomor_batch=nomor_batch)
 
         if request.method == "POST":
             ruangan_id = request.POST.get("ruangan_tujuan")
-            ruangan_tujuan = get_object_or_404(Ruangan, id=ruangan_id)
+            operator_id = request.POST.get("operator_id")
 
+            if not ruangan_id or not operator_id:
+                messages.error(request, "Ruangan dan Operator harus dipilih!")
+                return redirect(request.path)
+
+            ruangan_tujuan = get_object_or_404(Ruangan, id=ruangan_id)
+            operator_tujuan = get_object_or_404(Operator, id=operator_id)
+
+            # ✅ **Update Proses Produksi**
             produksi.ruangan = ruangan_tujuan
+            produksi.operator = operator_tujuan
             produksi.status = "Menunggu"
             produksi.waktu_selesai = None
             produksi.save()
 
-            return render(request, "produksi_monitoring/popup_pindah_ruangan.html", {"pindah_sukses": True})
+            messages.success(request, f"Batch {produksi.nomor_batch} berhasil dipindahkan ke {ruangan_tujuan.nama}.")
+            return redirect("/admin/produksi_monitoring/prosesproduksi/")
 
-        ruangan_list = Ruangan.objects.filter(jenis_proses='processing')
-        return render(request, "produksi_monitoring/popup_pindah_ruangan.html", {"produksi": produksi, "ruangan_list": ruangan_list})
+        ruangan_list = Ruangan.objects.all()
+        operator_list = Operator.objects.all()
+
+        return render(request, "admin/pindahkan_batch.html", {
+            "produksi": produksi,
+            "ruangan_list": ruangan_list,
+            "operator_list": operator_list
+        })

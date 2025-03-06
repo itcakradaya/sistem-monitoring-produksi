@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h2>Pindahkan Batch {{ produksi.nomor_batch }}</h2>
+
+<form method="POST">
+    {% csrf_token %}
+    
+    <label>Pilih Ruangan Tujuan:</label>
+    <select name="ruangan_tujuan" required>
+        <option value="">-- Pilih Ruangan --</option>
+        {% for ruangan in ruangan_list %}
+            <option value="{{ ruangan.id }}">{{ ruangan.nama }}</option>
+        {% endfor %}
+    </select>
+
+    <label>Pilih Operator:</label>
+    <select name="operator_id" required>
+        <option value="">-- Pilih Operator --</option>
+        {% for operator in operator_list %}
+            <option value="{{ operator.id }}">{{ operator.nama }}</option>
+        {% endfor %}
+    </select>
+
+    <button type="submit" class="button">Pindahkan</button>
+</form>
+
+<a href="/admin/produksi_monitoring/prosesproduksi/">Kembali</a>
+{% endblock %}

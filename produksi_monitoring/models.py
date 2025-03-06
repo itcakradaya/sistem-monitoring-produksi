@@ -1,6 +1,6 @@
 from django.db import models
 from django.utils.timezone import now
-import string
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
 class Mesin(models.Model):
@@ -43,16 +43,28 @@ class ItemDescription(models.Model):
     def __str__(self):
         return self.description
 
+class Operator(models.Model):
+    nama = models.CharField(max_length=255, unique=True)
+    kategori = models.CharField(max_length=50, choices=[
+        ("Penimbangan","Penimbangan"),
+        ("Proses", "Proses"),
+        ("Filling", "Filling"),
+        ("Labelling","Labelling")
+        ]
+    )
+
+    def __str__(self):
+        return f"{self.nama} ({self.kategori})"
 class ProsesProduksi(models.Model):
     STATUS_CHOICES = [
         ('Menunggu', 'Menunggu Proses'),
         ('Sedang diproses', 'Sedang Diproses'),
+        ('Menunggu Verifikasi Admin', 'Menunggu Verifikasi Admin'),
         ('Siap Dipindahkan', 'Siap Dipindahkan'),
-        ('Selesai', 'Selesai'),
         ('Selesai Produksi', 'Selesai Produksi'),
     ]
     status = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=STATUS_CHOICES,
         default='Menunggu',
         null=False,
@@ -69,12 +81,25 @@ class ProsesProduksi(models.Model):
     satuan = models.CharField(max_length=10, choices=[
         ('kg', 'Kilogram'), ('pcs', 'Pieces'), ('liter', 'Liter'), ('pack', 'Pack'),
     ], default='kg')
-    ruangan = models.ForeignKey("Ruangan", on_delete=models.CASCADE)
+    ruangan = models.ForeignKey("Ruangan", on_delete=models.CASCADE, default='Ruang Penimbangan')
     waktu_dibuat = models.DateTimeField(auto_now_add=True)
     waktu_mulai_produksi = models.DateTimeField(blank=True, null=True)
     waktu_selesai = models.DateTimeField(blank=True, null=True)
-    operator = models.CharField(max_length=20, blank=True, null=True)
+    operator = models.ForeignKey(Operator, on_delete=models.CASCADE, null=True, blank=True)
+    progress = models.PositiveIntegerField(default=0)
 
+    def update_progress(self, jumlah_terproses):
+        """Update progress dan otomatis tandai selesai jika progress penuh"""
+        self.progress += jumlah_terproses
+        if self.progress >= self.jumlah:
+            self.status = "Menunggu Verifikasi Admin"
+            self.waktu_selesai = now()
+        self.save()
+
+    def __str__(self):
+        return f"{self.nomor_batch} - {self.nama.description}"
+    
+    
     def clean(self):
         """Cek apakah nomor batch sudah ada di database, tapi hanya saat batch dibuat"""
         if not self.pk:
