@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block content %}
+<h1>Pilih Ruangan Tujuan & Operator</h1>
+
+<form method="POST">
+    {% csrf_token %}
+    
+    <label for="ruangan_tujuan">Ruangan Tujuan:</label>
+    <select name="ruangan_tujuan" required>
+        {% for ruangan in ruangan_list %}
+            <option value="{{ ruangan.id }}">{{ ruangan.nama }}</option>
+        {% endfor %}
+    </select>
+
+    <label for="operator_id">Operator Tujuan:</label>
+    <select name="operator_id" required>
+        {% for operator in operator_list %}
+            <option value="{{ operator.id }}">{{ operator.nama }} ({{ operator.kategori }})</option>
+        {% endfor %}
+    </select>
+
+    <button type="submit">Pindahkan Batch</button>
+</form>l
+{% endblock %}

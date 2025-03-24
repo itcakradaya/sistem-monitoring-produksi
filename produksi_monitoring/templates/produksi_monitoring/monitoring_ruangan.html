@@ -14,6 +14,7 @@
             margin: 0;
             padding: 20px;
             text-align: center;
+        }
 
         .cont {
             max-width: 1100px;
@@ -155,7 +156,7 @@
                             {% endif %}
                             <th>Waktu Mulai Produksi</th>
                             <th>Progress</th>
-                            <th>Keterangan</th>
+                            
                         </tr>
                     </thead>
                     <tbody>
@@ -167,20 +168,35 @@
                             <td>{{ produk.operator.nama }}</td>
                             <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
                             <td>
-                                <form method="POST" action="{% url 'update_progress' produk.id %}">
-                                    {% csrf_token %}
-                                    <input type="number" name="jumlah_terproses" min="1" max="{{ produk.jumlah }}" value="{{ produk.progress }}" required>
-                                    <button type="submit">Update</button>
-                                </form>
-                                <small>{{ produk.progress }} / {{ produk.jumlah }} {{ produk.satuan }}</small>
-                            </td>
-                            <td>
-                                {% if produk.progress < produk.jumlah %}
-                                    <span>⏳ Masih diproses</span>
+                                {% if "labelling" in ruangan.nama|lower %}
+                                    <!-- ✅ Untuk ruang labelling, progress berdasarkan jumlah kemasan -->
+                                    <form method="POST" action="{% url 'update_progress' produk.id %}">
+                                        {% csrf_token %}
+                                        <input type="number" name="jumlah_terproses" min="1" max="{{ produk.jumlah }}" required>
+                                        <button type="submit">Update</button>
+                                    </form>
+                                    <small>{{ produk.jumlah_kemasan|default:0 }} / {{ produk.jumlah }} {{ produk.satuan_kemasan|default:"pcs" }}</small>
+                        
+                                    <!-- ✅ Tambahkan Progress Bar -->
+                                    <div style="background-color: #ddd; border-radius: 10px; overflow: hidden; width: 100%;">
+                                        <div style="height: 15px; background-color: #4CAF50; width: {{ produk.progress_percentage|floatformat:0 }}%; max-width: 100%;"></div>
+                                    </div>
+                                    
                                 {% else %}
-                                    <span>✅ Selesai</span>
+                                    <!-- ✅ Untuk ruangan lain, progress dalam satuan kilogram -->
+                                    <form method="POST" action="{% url 'update_progress' produk.id %}">
+                                        {% csrf_token %}
+                                        <input type="number" name="jumlah_terproses" min="1" max="{{ produk.jumlah }}" value="{{ produk.progress }}" required>
+                                        <button type="submit">Update</button>
+                                    </form>
+                                    <small>{{ produk.progress }} / {{ produk.jumlah }} {{ produk.satuan }}</small>
+                        
+                                  
                                 {% endif %}
                             </td>
+                            
+                            
+                            
                         </tr>
                         {% empty %}
                         <tr><td colspan="7">Tidak ada proses produksi yang sedang diproses.</td></tr>
@@ -201,19 +217,17 @@
                     <th>Nama Produk</th>
                     <th>Jumlah</th>
                     <th>Waktu Selesai</th>
-                    <th>Status Akhir</th>
-                    <th>Diproses di Ruangan</th>
+                    <th>Operator</th>
                 </tr>
             </thead>
             <tbody>
                 {% for produk in proses_selesai %}
                 <tr class="status-selesai">
                     <td>{{ produk.nomor_batch }}</td>
-                    <td>{{ produk.nama.description }}</td>
+                    <td>{{ produk.nama_produk.description }}</td>
                     <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
                     <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
-                    <td>{{ produk.status }}</td>
-                    <td>{{ produk.ruangan.nama }}</td>
+                    <td>{{ produk.operator }}</td>
                 </tr>
                 {% empty %}
                 <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
@@ -223,7 +237,37 @@
     </div>
 </div>
 
-
+{% if "labelling" in ruangan.nama|lower %}
+<div class="card card-selesai">
+    <div class="card-header">📌 Riwayat Produksi di Ruang Labelling ✅</div>
+    <div class="card-body">
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>Nomor Batch</th>
+                    <th>Nama Produk</th>
+                    <th>Jumlah Kemasan</th>
+                    <th>Satuan Kemasan</th>
+                    <th>Waktu Selesai</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for produk in riwayat_produksi %}
+                <tr class="status-selesai">
+                    <td>{{ produk.nomor_batch }}</td>
+                    <td>{{ produk.nama.description }}</td>
+                    <td>{{ produk.jumlah_kemasan }}</td>
+                    <td>{{ produk.get_satuan_kemasan_display }}</td>
+                    <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">Belum ada riwayat produksi di ruangan ini.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
      
     </div>
     <script>
