@@ -25,6 +25,33 @@
             box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
         }
 
+        .styled-table tr:hover {
+            background-color: #f1f5f9;
+            transition: background 0.3s ease;
+        }
+
+        .styled-table td, .styled-table th {
+            box-shadow: inset 0 0 0 1px #e5e7eb;
+        }
+
+        button {
+            background-color: hsl(219, 98%, 55%);
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: hsl(219, 98%, 45%);
+        }
+
+        .card-body {
+            overflow-x: auto;
+        }
         .ruangan-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -69,11 +96,15 @@
             padding: 10px;
             text-align: center;
         }
-        .styled-table th { background-color: hsl(219, 98%, 39%); color: white; }
-        @media (max-width: 768px) {
-            .ruangan-container { grid-template-columns: 1fr; }
+        .styled-table th {
+            background-color: hsl(219, 98%, 39%);
+            color: white;
         }
-       
+        @media (max-width: 768px) {
+            .ruangan-container {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -90,13 +121,12 @@
         </div>
     </header>
     <div>
-        <h1 class="page-title">📊 PROSES PRODUKSI di {{ ruangan.nama }}</h1>
+        <h1 class="page-title" style="font-size: 25px; color: #1e3a8a; margin-bottom: 10px;">
+            📊 Monitoring Produksi: {{ ruangan.nama|title }}
+        </h1>
         <p id="tanggal-waktu" style="text-align: center; font-size: 23px; font-weight: bold; color: #333; margin-top: 10px;"></p>
-
     </div>
- 
-    
-    
+
     <div class="ruangan-container">
         <!-- Menunggu -->
         <div class="card card-menunggu">
@@ -109,6 +139,7 @@
                             <th>Nama Produk</th>
                             <th>Jumlah</th>
                             <th>Operator</th>
+                            <th>Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -121,26 +152,21 @@
                             <td>
                                 {% if request.user.is_authenticated %}
                                     {% if request.user.is_superuser or is_operator %}   
-                                        {% if produk.status == "Menunggu" %}
-                                            <form action="{% url 'tandai_sedang_diproses' produk.id %}" method="POST">
-                                                {% csrf_token %}
-                                                <button type="submit" class="btn btn-warning">Tandai Sedang Diproses</button>
-                                            </form>
-                                        {% else %}
-                                            <span>Status: {{ produk.status }}</span>
-                                        {% endif %}
+                                        <form action="{% url 'tandai_sedang_diproses' produk.id %}" method="POST">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-warning">Tandai Sedang Diproses</button>
+                                        </form>
                                     {% endif %}
                                 {% endif %}
                             </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="4">Tidak ada proses produksi yang menunggu.</td></tr>
+                        <tr><td colspan="5">Tidak ada proses produksi yang menunggu.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
-
         <!-- Sedang Diproses -->
         <div class="card card-diproses">
             <div class="card-header">Sedang Diproses 🔄</div>
@@ -151,12 +177,9 @@
                             <th>Nomor Batch</th>
                             <th>Nama Produk</th>
                             <th>Jumlah</th>
-                            {% if proses_diproses|length > 0 %}
                             <th>Operator</th>
-                            {% endif %}
                             <th>Waktu Mulai Produksi</th>
                             <th>Progress</th>
-                            
                         </tr>
                     </thead>
                     <tbody>
@@ -169,43 +192,80 @@
                             <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
                             <td>
                                 {% if "labelling" in ruangan.nama|lower %}
-                                    <!-- ✅ Untuk ruang labelling, progress berdasarkan jumlah kemasan -->
+                                    <!-- Ruang Labelling: Input jumlah kemasan -->
                                     <form method="POST" action="{% url 'update_progress' produk.id %}">
                                         {% csrf_token %}
-                                        <input type="number" name="jumlah_terproses" min="1" max="{{ produk.jumlah }}" required>
-                                        <button type="submit">Update</button>
+                                        <input type="number" name="jumlah_kemasan" min="1" required placeholder="Jumlah pcs/karton">
+                                        <select name="satuan_kemasan" required>
+                                            <option value="pcs">pcs</option>
+                                            <option value="karton">karton</option>
+                                            <option value="pack">pack</option>
+                                        </select>
+                                        <button type="submit">Simpan</button>
                                     </form>
-                                    <small>{{ produk.jumlah_kemasan|default:0 }} / {{ produk.jumlah }} {{ produk.satuan_kemasan|default:"pcs" }}</small>
-                        
-                                    <!-- ✅ Tambahkan Progress Bar -->
-                                    <div style="background-color: #ddd; border-radius: 10px; overflow: hidden; width: 100%;">
-                                        <div style="height: 15px; background-color: #4CAF50; width: {{ produk.progress_percentage|floatformat:0 }}%; max-width: 100%;"></div>
-                                    </div>
-                                    
+
+                                    {% if produk.estimasi_jumlah_kemasan %}
+                                        {% with persen=produk.akurasi_persen|default:0 %}
+                                            <div style="width: 100%; background-color: #e0e0e0; border-radius: 4px;">
+                                                <div style="width: {{ persen }}%; background-color: #2196F3; padding: 3px 5px; color: white; border-radius: 4px;">
+                                                    {{ persen }}%
+                                                </div>
+                                            </div>
+                                        {% endwith %}
+                                        <small><strong>{{ produk.jumlah_kemasan|default:0 }}</strong> / {{ produk.estimasi_jumlah_kemasan }} {{ produk.get_satuan_kemasan_display }}</small>
+                                    {% else %}
+                                        <small>
+                                            Realisasi: <strong>{{ produk.jumlah_kemasan|default:0 }} {{ produk.get_satuan_kemasan_display }}</strong>
+                                        </small>
+                                    {% endif %}
+
+                                    <form method="POST" action="{% url 'tandai_selesai_labelling' produk.nomor_batch %}">
+                                        {% csrf_token %}
+                                        <button type="submit">Tandai Selesai</button>
+                                    </form>
+
                                 {% else %}
-                                    <!-- ✅ Untuk ruangan lain, progress dalam satuan kilogram -->
+                                    <!-- Ruang lain: Input progress satuan -->
                                     <form method="POST" action="{% url 'update_progress' produk.id %}">
                                         {% csrf_token %}
-                                        <input type="number" name="jumlah_terproses" min="1" max="{{ produk.jumlah }}" value="{{ produk.progress }}" required>
+                                        <input type="number" name="jumlah_terproses" min="1"
+                                            oninput="validasiJumlah(this, {{ produk.jumlah }}, {{ produk.progress }})"
+                                            required>
                                         <button type="submit">Update</button>
                                     </form>
+
+                                    <div style="width: 100%; background-color: #e0e0e0; border-radius: 4px;">
+                                        <div style="width: {{ produk.progress_percentage }}%; background-color: #4caf50; padding: 2px 5px; color: white; border-radius: 4px;">
+                                            {{ produk.progress_percentage }}%
+                                        </div>
+                                    </div>
                                     <small>{{ produk.progress }} / {{ produk.jumlah }} {{ produk.satuan }}</small>
-                        
-                                  
+
+                                    {% if "proses" in ruangan.nama|lower %}
+                                        {% if produk.status == "Sedang Diproses" and not produk.hasil_akhir %}
+                                            <form method="POST" action="{% url 'operator_tentukan_hasil_akhir' produk.id %}">
+                                                {% csrf_token %}
+                                                <select name="hasil_akhir" required>
+                                                    <option value="">-- Pilih Status Akhir --</option>
+                                                    <option value="Release">Release</option>
+                                                    <option value="Reject">Reject</option>
+                                                </select>
+                                                <button type="submit">Tandai</button>
+                                            </form>
+                                        {% elif produk.hasil_akhir %}
+                                            <small><strong>Hasil Akhir:</strong> {{ produk.hasil_akhir }}</small>
+                                        {% endif %}
+                                    {% endif %}
                                 {% endif %}
                             </td>
-                            
-                            
-                            
                         </tr>
                         {% empty %}
-                        <tr><td colspan="7">Tidak ada proses produksi yang sedang diproses.</td></tr>
+                        <tr><td colspan="6">Tidak ada proses produksi yang sedang diproses.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
-        <!-- Selesai Produksi -->
 <!-- Selesai Produksi -->
 <div class="card card-selesai">
     <div class="card-header">Riwayat Produksi di Ruangan Ini ✅</div>
@@ -218,6 +278,9 @@
                     <th>Jumlah</th>
                     <th>Waktu Selesai</th>
                     <th>Operator</th>
+                    {% if "proses" in ruangan.nama|lower %}
+                        <th>Hasil Akhir</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -228,6 +291,19 @@
                     <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
                     <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
                     <td>{{ produk.operator }}</td>
+                    {% if "proses" in ruangan.nama|lower %}
+                        <td>
+                            {% if produk.hasil_akhir %}
+                                {% if produk.hasil_akhir == "Release" %}
+                                    <span style="color: green; font-weight: bold;">Release</span>
+                                {% elif produk.hasil_akhir == "Reject" %}
+                                    <span style="color: red; font-weight: bold;">Reject</span>
+                                {% endif %}
+                            {% else %}
+                                <span>-</span>
+                            {% endif %}
+                        </td>
+                    {% endif %}
                 </tr>
                 {% empty %}
                 <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
@@ -236,7 +312,6 @@
         </table>
     </div>
 </div>
-
 {% if "labelling" in ruangan.nama|lower %}
 <div class="card card-selesai">
     <div class="card-header">📌 Riwayat Produksi di Ruang Labelling ✅</div>
@@ -246,9 +321,10 @@
                 <tr>
                     <th>Nomor Batch</th>
                     <th>Nama Produk</th>
-                    <th>Jumlah Kemasan</th>
-                    <th>Satuan Kemasan</th>
+                    <th>Jumlah Kemasan Produk</th>
+                    <th>Waktu Mulai Produksi</th>
                     <th>Waktu Selesai</th>
+                    <th>Operator</th>
                 </tr>
             </thead>
             <tbody>
@@ -256,44 +332,67 @@
                 <tr class="status-selesai">
                     <td>{{ produk.nomor_batch }}</td>
                     <td>{{ produk.nama.description }}</td>
-                    <td>{{ produk.jumlah_kemasan }}</td>
-                    <td>{{ produk.get_satuan_kemasan_display }}</td>
+                    <td>
+                        {% if produk.estimasi_jumlah_kemasan %}
+                            <strong>Estimasi:</strong> {{ produk.estimasi_jumlah_kemasan }} {{ produk.get_satuan_kemasan_display }}<br>
+                            <strong>Realisasi:</strong> {{ produk.jumlah_kemasan|default:"0" }} {{ produk.get_satuan_kemasan_display }}<br>
+                            <strong>Akurasi:</strong>
+                            {% if produk.akurasi_persen %}
+                                {% if produk.akurasi_persen >= 90 %}
+                                    <span style="color: green;">{{ produk.akurasi_persen }}%</span>
+                                {% elif produk.akurasi_persen >= 70 %}
+                                    <span style="color: orange;">{{ produk.akurasi_persen }}%</span>
+                                {% else %}
+                                    <span style="color: red;">{{ produk.akurasi_persen }}%</span>
+                                {% endif %}
+                            {% else %}
+                                <span>-</span>
+                            {% endif %}
+                        {% else %}
+                            <strong>Realisasi:</strong> {{ produk.jumlah_kemasan|default:"0" }} {{ produk.get_satuan_kemasan_display }}
+                        {% endif %}
+                    </td>
+                    <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
                     <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                    <td>{{ produk.operator }}</td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="5">Belum ada riwayat produksi di ruangan ini.</td></tr>
+                <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
 {% endif %}
-     
-    </div>
-    <script>
-        function updateDateTime() {
-            var now = new Date();
-            
-            // Format hari dan bulan dalam bahasa Indonesia
-            var hari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-            var bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-    
-            var namaHari = hari[now.getDay()];
-            var tanggal = now.getDate();
-            var namaBulan = bulan[now.getMonth()];
-            var tahun = now.getFullYear();
-            var jam = now.getHours().toString().padStart(2, '0');
-            var menit = now.getMinutes().toString().padStart(2, '0');
-            var detik = now.getSeconds().toString().padStart(2, '0');
-    
-            var waktuFormatted = `${namaHari}, ${tanggal} ${namaBulan} ${tahun} ${jam}:${menit}:${detik}`;
-            document.getElementById("tanggal-waktu").innerText = waktuFormatted;
-        }
-    
-        setInterval(updateDateTime, 1000);
-        updateDateTime();
-    </script>
-        
-</body>
+<script>
+    function updateDateTime() {
+        var now = new Date();
 
-</html>
+        var hari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+        var bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+        var namaHari = hari[now.getDay()];
+        var tanggal = now.getDate();
+        var namaBulan = bulan[now.getMonth()];
+        var tahun = now.getFullYear();
+        var jam = now.getHours().toString().padStart(2, '0');
+        var menit = now.getMinutes().toString().padStart(2, '0');
+        var detik = now.getSeconds().toString().padStart(2, '0');
+
+        var waktuFormatted = `${namaHari}, ${tanggal} ${namaBulan} ${tahun} ${jam}:${menit}:${detik}`;
+        document.getElementById("tanggal-waktu").innerText = waktuFormatted;
+    }
+
+    setInterval(updateDateTime, 1000);
+    updateDateTime();
+
+    function validasiJumlah(input, jumlah, progress) {
+        const sisa = jumlah - progress;
+        const nilai = parseInt(input.value);
+
+        if (nilai > sisa) {
+            alert("Jumlah yang dimasukkan melebihi sisa proses.\nMaksimal hanya " + sisa + " lagi.");
+            input.value = sisa;
+        }
+    }
+</script>

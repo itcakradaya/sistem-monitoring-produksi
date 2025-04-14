@@ -122,12 +122,12 @@ def pilih_ruangan_proses(request):
 ### ✅ Admin: ProsesProduksi
 @admin.register(ProsesProduksi)
 class ProsesProduksiAdmin(admin.ModelAdmin):
+    exclude = ('hasil_akhir', 'jumlah_kemasan','progress',)
     autocomplete_fields = ['nama', 'operator']
     search_fields = ['nama__description', 'nomor_batch']
     form = ProsesProduksiForm
     list_display = (
-        'nomor_batch', 'nama', 'ruangan', 'status_display', 'jumlah',
-        'satuan', 'waktu_dibuat', 'get_waktu_selesai', 'tahap_berikutnya', 'tombol_pindah'
+        'nomor_batch', 'nama', 'ruangan', 'status_display', 'estimasi_jumlah_kemasan', 'jumlah','satuan', 'waktu_dibuat', 'get_waktu_selesai', 'tahap_berikutnya', 'tombol_pindah'
     )
     list_filter = ('status', 'ruangan')
     ordering = ('-waktu_dibuat',)

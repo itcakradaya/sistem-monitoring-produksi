@@ -35,11 +35,26 @@ def monitoring_produksi_per_ruangan(request, ruangan_nama):
     ).values_list('nomor_batch', flat=True).distinct()
 
     selesai = RiwayatProduksi.objects.filter(
-    ruangan=ruangan
-    ).select_related('ruangan').order_by('-waktu_selesai')
+        ruangan=ruangan
+    ).select_related('ruangan').order_by('-waktu_selesai') [:10]
 
-    for produk in diproses:
-        produk.progress_percentage = produk.progress_percentage 
+    
+    riwayat_labelling = None
+    if "labelling" in ruangan.nama.lower():
+        riwayat_labelling = ProsesProduksi.objects.filter(
+            ruangan=ruangan,
+            status="Selesai Produksi"
+        ).order_by('-waktu_selesai') [:10] 
+
+        # 🔁 Hitung akurasi estimasi vs realisasi
+        for item in riwayat_labelling:
+            if item.estimasi_jumlah_kemasan and item.jumlah_kemasan:
+                try:
+                    item.akurasi_persen = round((item.jumlah_kemasan / item.estimasi_jumlah_kemasan) * 100, 2)
+                except ZeroDivisionError:
+                    item.akurasi_persen = 0
+            else:
+                item.akurasi_persen = None
         
     return render(request, "produksi_monitoring/monitoring_ruangan.html", {
         "ruangan": ruangan,
@@ -47,6 +62,7 @@ def monitoring_produksi_per_ruangan(request, ruangan_nama):
         "proses_diproses": diproses,
         "proses_siap_pindah": siap_pindah,
         "proses_selesai": selesai,
+        "riwayat_produksi": riwayat_labelling,
     })
 
 # ✅ OPERATOR MENANDAI SELESAI
@@ -67,20 +83,49 @@ def operator_tandai_selesai(request, produksi_id):
     return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/"))
 
 @login_required
+def tandai_sedang_diproses(request, produksi_id):
+    """Operator menandai proses produksi sebagai 'Sedang Diproses'."""
+    produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
+
+    if produksi.status == "Menunggu":
+        produksi.status = "Sedang Diproses"
+        produksi.waktu_mulai_produksi = now()
+        produksi.progress = 0
+        produksi.save()
+
+        messages.success(request, f"Batch {produksi.nomor_batch} sekarang sedang diproses.")
+    else:
+        messages.error(request, "Batch ini tidak bisa ditandai sedang diproses.")
+
+    return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
+@login_required
 def pindahkan_batch_ke_ruangan_form(request, nomor_batch):
     """Menampilkan halaman pindah batch dengan form pemilihan ruangan dan operator"""
     print(f"✅ DEBUG: Mencari produksi dengan Nomor Batch={nomor_batch}")
 
     produksi = get_object_or_404(ProsesProduksi, nomor_batch=nomor_batch)
+    if produksi.hasil_akhir == "Reject":
+        messages.error(request, "Batch ini telah ditandai 'Reject' dan tidak bisa dipindahkan ke ruangan lain.")
+        return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
     
     # ✅ Cek apakah batch berasal dari Labelling
     if produksi.ruangan.nama.lower() == "labelling":
         messages.error(request, "Batch dari ruang Labelling tidak bisa dipindahkan ke ruangan sebelumnya.")
         return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
-    if not produksi.status.startswith("Selesai Diproses di"):
-        messages.error(request, "Batch hanya bisa dipindahkan setelah selesai diproses di ruangan ini.")
-        return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+    # Validasi pemindahan berdasarkan jenis ruangan
+    if "proses" in produksi.ruangan.nama.lower():
+        if produksi.status != "Selesai Produksi" or produksi.hasil_akhir != "Release":
+            messages.error(request, "Batch di ruang Proses hanya bisa dipindahkan setelah ditandai 'Release'.")
+            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+    else:
+        if produksi.status not in ["Selesai Produksi", f"Selesai Diproses di {produksi.ruangan.nama}"]:
+            messages.error(request, "Batch hanya bisa dipindahkan setelah selesai diproses.")
+            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
+
 
     if request.method == "POST":
         ruangan_id = request.POST.get("ruangan_tujuan")
@@ -105,6 +150,7 @@ def pindahkan_batch_ke_ruangan_form(request, nomor_batch):
         messages.success(request, f"Batch {produksi.nomor_batch} berhasil dipindahkan ke {ruangan_tujuan.nama}.")
         return redirect("monitoring_per_ruangan", ruangan_nama=slugify(ruangan_tujuan.nama))
 
+    
     return render(request, "produksi_monitoring/pindahkan_batch.html", {
         "produksi": produksi,
         "ruangan_list": Ruangan.objects.exclude(id=produksi.ruangan.id),
@@ -152,77 +198,103 @@ def pilih_ruangan_proses(request):
     })
 
 @login_required
-def tandai_sedang_diproses(request, produksi_id):
-    """Operator menandai proses produksi sebagai 'Sedang Diproses'."""
-    produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
-
-    if produksi.status == "Menunggu":
-        produksi.status = "Sedang Diproses"
-        produksi.waktu_mulai_produksi = now()
-        produksi.progress = 0  # ✅ Pastikan progress bisa di-set ke 0
-        produksi.save()
-
-        messages.success(request, f"Batch {produksi.nomor_batch} sekarang sedang diproses.")
-    else:
-        messages.error(request, "Batch ini tidak bisa ditandai sedang diproses.")
-
-    return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
-
-
-@login_required
 def update_progress(request, produksi_id):
-    """Update progress produksi berdasarkan ruangan saat ini"""
     produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
 
     if request.method == "POST":
-        jumlah_terproses = int(request.POST.get("jumlah_terproses", 0))
+        # 🔍 Jika ruang labelling → input jumlah kemasan manual
+        if "jumlah_kemasan" in request.POST:
+            jumlah = int(request.POST.get("jumlah_kemasan", 0))
+            satuan = request.POST.get("satuan_kemasan", "")
 
+            if jumlah < 1:
+                messages.error(request, "Jumlah kemasan harus lebih dari 0.")
+                return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+            
+            produksi.jumlah_kemasan = (produksi.jumlah_kemasan or 0) + jumlah
+            produksi.satuan_kemasan = satuan
+            produksi.save()
+
+            messages.success(request, "Jumlah kemasan berhasil disimpan.")
+            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
+        # 💡 Ruangan lain → input jumlah_terproses
+        jumlah_terproses = int(request.POST.get("jumlah_terproses", 0))
         if jumlah_terproses < 1:
             messages.error(request, "Jumlah yang diproses harus lebih dari 0.")
             return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
+        if produksi.progress + jumlah_terproses > produksi.jumlah:
+            sisa = produksi.jumlah - produksi.progress
+            messages.error(request, f"Jumlah terproses ({jumlah_terproses}) melebihi sisa target produksi ({sisa}).")
+            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
         produksi.progress += jumlah_terproses
+        produksi.waktu_mulai_produksi = produksi.waktu_mulai_produksi or now()
+
         if produksi.progress >= produksi.jumlah:
             produksi.progress = produksi.jumlah
-            produksi.status = f"Selesai Diproses di {produksi.ruangan.nama}"
-            produksi.waktu_selesai = now()
 
-            
-            # Simpan ke Riwayat Produksi kalau belum ada
-            with transaction.atomic():
-                riwayat, created = RiwayatProduksi.objects.get_or_create(
-                    nomor_batch=produksi.nomor_batch,
-                    nama_produk=produksi.nama,
-                    jumlah=produksi.jumlah,
-                    satuan=produksi.satuan,
-                    ruangan=produksi.ruangan,
-                    operator=produksi.operator,
-                    waktu_mulai_produksi=produksi.waktu_mulai_produksi,
-                    waktu_selesai=produksi.waktu_selesai
-                )
+            if "proses" in produksi.ruangan.nama.lower():
+                 # Untuk ruangan proses → tunggu hasil akhir dari operator
+                messages.info(request, "Produksi sudah mencapai jumlah maksimal. Silakan pilih hasil akhir (Release / Reject).")
+            else:
+                # Ruangan lain langsung tandai selesai
+                produksi.status = f"Selesai Diproses di {produksi.ruangan.nama}"
+                produksi.waktu_selesai = now()
+                messages.success(request, f"Produksi di {produksi.ruangan.nama} telah selesai.")
+
 
         produksi.save()
+        messages.success(request, f"Batch {produksi.nomor_batch} berhasil diupdate.")
+        return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
-        messages.success(request, f"Batch {produksi.nomor_batch} selesai diproses di {produksi.ruangan.nama}.")
+@login_required
+def operator_tentukan_hasil_akhir(request, produksi_id):
+    produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
+
+    if request.method == "POST":
+        hasil = request.POST.get("hasil_akhir")
+        if hasil in ["Release", "Reject"]:
+            produksi.hasil_akhir = hasil
+            produksi.status = f"Selesai Diproses di {produksi.ruangan.nama}"
+            produksi.waktu_selesai = now()
+            produksi.save()
+
+            # ⬇️ Catat ke riwayat
+            RiwayatProduksi.objects.get_or_create(
+                nomor_batch=produksi.nomor_batch,
+                nama_produk=produksi.nama,
+                jumlah=produksi.jumlah,
+                satuan=produksi.satuan,
+                ruangan=produksi.ruangan,
+                operator=produksi.operator,
+                waktu_mulai_produksi=produksi.waktu_mulai_produksi,
+                waktu_selesai=produksi.waktu_selesai,
+                hasil_akhir=produksi.hasil_akhir,
+            )
+
+            # ➕ Jika Release dan ada tahap selanjutnya, buat batch baru otomatis
+            if hasil == "Release" and produksi.ruangan.tahap_berikutnya:
+                ProsesProduksi.objects.create(
+                    nomor_batch=produksi.nomor_batch,
+                    nama=produksi.nama,
+                    jumlah=produksi.jumlah,
+                    satuan=produksi.satuan,
+                    ruangan=produksi.ruangan.tahap_berikutnya,
+                    status="Menunggu",
+                )
+
+            messages.success(request, f"Hasil akhir batch {produksi.nomor_batch} ditandai sebagai '{hasil}'.")
+        else:
+            messages.error(request, "Pilihan hasil akhir tidak valid.")
+        
         return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
 
-
-def tandai_selesai_oleh_operator(request, produksi_id):
-    """Operator menandai proses produksi selesai dan menunggu verifikasi admin."""
-    produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
-
-    if produksi.status == "Sedang Diproses":
-        produksi.status = "Menunggu Verifikasi Admin"
-        produksi.waktu_selesai = now()
-        produksi.save()
-        print(f"DEBUG: {produksi.nomor_batch} sekarang 'Menunggu Verifikasi Admin'.")
-
-    return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
-
-# ✅ MENANDAI PRODUKSI SIAP DIPINDAHKAN
+@login_required
 def tandai_siap_dipindahkan(request, produksi_id):
-    """Menandai batch yang sedang diproses menjadi 'Siap Dipindahkan'."""
+    """Menandai batch sedang diproses menjadi siap dipindahkan (tidak digunakan jika pakai Release)."""
     produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
 
     if produksi.status == "Sedang Diproses":
@@ -233,11 +305,12 @@ def tandai_siap_dipindahkan(request, produksi_id):
     else:
         print(f"DEBUG: {produksi.nomor_batch} tidak bisa ditandai siap dipindahkan.")
 
-    return redirect(reverse('monitoring_per_ruangan', args=[slugify(produksi.ruangan.nama)]))
+    return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
 
 @login_required
 def tandai_selesai_labelling(request, nomor_batch):
-    """Operator menandai batch selesai di ruang labelling"""
+    """Operator ruang labelling menandai batch selesai produksi."""
     produksi = get_object_or_404(ProsesProduksi, nomor_batch=nomor_batch)
 
     if produksi.jumlah_kemasan is None or produksi.jumlah_kemasan <= 0:
@@ -248,5 +321,20 @@ def tandai_selesai_labelling(request, nomor_batch):
     produksi.waktu_selesai = now()
     produksi.save()
 
+    # Tambah ke RiwayatProduksi jika belum ada
+    RiwayatProduksi.objects.get_or_create(
+        nomor_batch=produksi.nomor_batch,
+        nama_produk=produksi.nama,
+        jumlah=produksi.jumlah,
+        satuan=produksi.satuan,
+        ruangan=produksi.ruangan,
+        operator=produksi.operator,
+        waktu_mulai_produksi=produksi.waktu_mulai_produksi,
+        waktu_selesai=produksi.waktu_selesai,
+        hasil_akhir="Release"  # Default untuk labelling dianggap berhasil
+    )
+
     messages.success(request, f"Batch {produksi.nomor_batch} telah ditandai selesai produksi.")
     return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
+

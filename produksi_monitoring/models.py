@@ -1,8 +1,7 @@
 from django.db import models
-from django.db import transaction
 from django.utils.timezone import now
-from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
+
 
 class Mesin(models.Model):
     kode_mesin = models.CharField(max_length=10, unique=True, null=True)
@@ -10,6 +9,7 @@ class Mesin(models.Model):
 
     def __str__(self):
         return self.nama_mesin
+
     class Meta:
         verbose_name = "Mesin"
         verbose_name_plural = "Mesin"
@@ -33,6 +33,7 @@ class Ruangan(models.Model):
 
     def __str__(self):
         return self.nama
+
     class Meta:
         verbose_name = "Ruangan"
         verbose_name_plural = "Ruangan"
@@ -47,162 +48,91 @@ class ItemDescription(models.Model):
 class Operator(models.Model):
     nama = models.CharField(max_length=255, unique=True)
     kategori = models.CharField(max_length=50, choices=[
-        ("Penimbangan","Penimbangan"),
+        ("Penimbangan", "Penimbangan"),
         ("Proses", "Proses"),
         ("Filling", "Filling"),
-        ("Labelling","Labelling")
-        ]
-    )
+        ("Labelling", "Labelling"),
+    ])
 
     def __str__(self):
         return f"{self.nama} ({self.kategori})"
+
 class ProsesProduksi(models.Model):
     STATUS_CHOICES = [
         ('Menunggu', 'Menunggu Proses'),
         ('Sedang diproses', 'Sedang Diproses'),
         ('Menunggu Verifikasi Admin', 'Menunggu Verifikasi Admin'),
-        ('Selesai di Ruangan Ini', 'Selesai di Ruangan Ini'),
         ('Siap Dipindahkan', 'Siap Dipindahkan'),
         ('Selesai Produksi', 'Selesai Produksi'),
     ]
-    status = models.CharField(
-        max_length=30,
-        choices=STATUS_CHOICES,
-        default='Menunggu',
-        null=False,
-        blank=False,
-    )
-    nama = models.ForeignKey("ItemDescription", on_delete=models.CASCADE)
-    nomor_batch = models.CharField(
-        max_length=20, 
-        unique=True, 
-        blank=True, 
-        null=False
-    )
+
+    HASIL_AKHIR_CHOICES = [
+        ('', 'Belum Ditetapkan'),
+        ('Release', 'Release'),
+        ('Reject', 'Reject'),
+    ]
+
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='Menunggu')
+    hasil_akhir = models.CharField(max_length=10, choices=HASIL_AKHIR_CHOICES, default='', blank=True)
+
+    nama = models.ForeignKey(ItemDescription, on_delete=models.CASCADE)
+    nomor_batch = models.CharField(max_length=20, unique=True, null=False, blank=False)
     jumlah = models.PositiveIntegerField()
-    
-    def progress_percentage(self):
-        if self.jumlah > 0:
-            return (self.progress / self.jumlah) * 100
-        return 0  # Mencegah error jika jumlah 0
-    @property
-    def progress_display(self):
-        return f"{self.progress_percentage():.0f}%" 
-    
     satuan = models.CharField(max_length=10, choices=[
-        ('kg', 'Kilogram'), ('pcs', 'Pieces'), ('liter', 'Liter'), ('pack', 'Pack'),
+        ('kg', 'Kilogram'), ('pcs', 'Pieces'), ('liter', 'Liter'), ('pack', 'Pack')
     ], default='kg')
 
-      # ✅ Tambahkan untuk Ruang Labelling
+    estimasi_jumlah_kemasan = models.PositiveIntegerField(null=True, blank=True)
     jumlah_kemasan = models.PositiveIntegerField(null=True, blank=True)
     satuan_kemasan = models.CharField(max_length=10, choices=[
-        ('pcs', 'Pieces'), ('karton', 'Karton'),
+        ('Pcs', 'Pcs'), ('Karton', 'Karton')
     ], null=True, blank=True)
 
-    ruangan = models.ForeignKey("Ruangan", on_delete=models.CASCADE, default='Ruang Penimbangan')
+    ruangan = models.ForeignKey(Ruangan, on_delete=models.CASCADE)
     waktu_dibuat = models.DateTimeField(auto_now_add=True)
-    waktu_mulai_produksi = models.DateTimeField(blank=True, null=True)
-    waktu_selesai = models.DateTimeField(blank=True, null=True)
+    waktu_mulai_produksi = models.DateTimeField(null=True, blank=True)
+    waktu_selesai = models.DateTimeField(null=True, blank=True)
     operator = models.ForeignKey(Operator, on_delete=models.CASCADE, null=True, blank=True)
     progress = models.PositiveIntegerField(default=0)
-
-    def update_progress(self, jumlah_terproses):
-        """Update progress produksi berdasarkan jumlah yang diproses"""
-
-        if jumlah_terproses < 1:
-            raise ValueError("Jumlah yang diproses harus lebih dari 0")
-
-        self.progress = min(self.progress + jumlah_terproses, self.jumlah)
-
-        if self.progress >= self.jumlah:
-            self.progress = self.jumlah
-            self.status = f"Selesai Diproses di {self.ruangan.nama}"
-            self.waktu_selesai = now()
-
-            # ✅ Pastikan transaksi aman dan tidak ada duplikasi
-            with transaction.atomic():
-                riwayat, created = RiwayatProduksi.objects.get_or_create(
-                    nomor_batch=self.nomor_batch,
-                    nama_produk=self.nama,
-                    jumlah=self.jumlah,
-                    satuan=self.satuan,
-                    ruangan=self.ruangan,
-                    operator=self.operator,
-                    waktu_mulai_produksi=self.waktu_mulai_produksi,
-                    waktu_selesai=self.waktu_selesai
-                )
-
-                if created:
-                    print(f"DEBUG: Batch {self.nomor_batch} berhasil ditambahkan ke RiwayatProduksi.")
-
-         # ✅ Simpan perubahan di database
-        self.save()
-
+      
     def __str__(self):
         return f"{self.nomor_batch} - {self.nama.description}"
     
-    
+    @property
+    def progress_percentage(self):
+        if self.jumlah > 0:
+            return round((self.progress / self.jumlah) * 100, 2)
+        return 0
+
+
     def clean(self):
-        """Cek apakah nomor batch sudah ada di database, tapi hanya saat batch dibuat"""
-        if not self.pk:
-            if ProsesProduksi.objects.filter(nomor_batch=self.nomor_batch).exists():
-                 raise ValidationError({"nomor_batch": "Nomor batch ini sudah digunakan. Silakan gunakan nomor batch lain."})
+        if not self.pk and ProsesProduksi.objects.filter(nomor_batch=self.nomor_batch).exists():
+            raise ValidationError({"nomor_batch": "Nomor batch ini sudah digunakan."})
+
+        if self.status == "Selesai Produksi" and self.ruangan.nama.lower() == "labelling":
+            if not self.jumlah_kemasan or not self.satuan_kemasan:
+                raise ValidationError("Jumlah kemasan dan satuan kemasan harus diisi di ruangan Labelling.")
 
     def save(self, *args, **kwargs):
         self.clean()
-        # Hanya buat nomor batch jika produksi dimulai di ruangan "Penimbangan"
-        if self.status == "Sedang diproses" and not self.waktu_mulai_produksi:
-            self.waktu_mulai_produksi = now()  # Set waktu mulai otomatis
-      
-        if not self.pk:  # Jika proses baru dibuat
-            try:
-                ruang_penimbangan = Ruangan.objects.get(nama__icontains="Penimbangan")
-                self.ruangan = ruang_penimbangan
-            except Ruangan.DoesNotExist:
-                pass  # Jika ruangan tidak ada, biarkan admin memilih sendiri
 
-        # Jika status "Selesai", otomatis pindahkan ke tahap berikutnya jika belum ada
-        if self.status == "Selesai" and self.ruangan.tahap_berikutnya:
-            self.pindah_ke_tahap_berikutnya()
+        if self.status == "Sedang diproses" and not self.waktu_mulai_produksi:
+            self.waktu_mulai_produksi = now()
 
         super().save(*args, **kwargs)
 
-    def set_selesai_di_ruangan(self):
-        """Atur status selesai berdasarkan ruangan saat ini"""
-        self.status = f"Selesai Diproses di {self.ruangan.nama}"    
+    def is_labelling(self):
+        return self.ruangan.nama.lower() == "labelling"
 
-    def pindah_ke_tahap_berikutnya(self):
-        """Memindahkan batch ke tahap berikutnya"""
-        if self.ruangan.tahap_berikutnya:
-            existing_batch = ProsesProduksi.objects.filter(
-                nomor_batch=self.nomor_batch,
-                ruangan=self.ruangan.tahap_berikutnya
-            ).exists()
+    @property
+    def progress_display(self):
+        return f"{(self.progress / self.jumlah * 100):.0f}%" if self.jumlah else "0%"
 
-            if not existing_batch:
-                ProsesProduksi.objects.create(
-                    nomor_batch=self.nomor_batch,
-                    nama=self.nama,
-                    jumlah=self.jumlah,
-                    satuan=self.satuan,
-                    status="Menunggu",  # Status baru setelah dipindah
-                    ruangan=self.ruangan.tahap_berikutnya,
-                    waktu_mulai_produksi=None,
-                    operator=None  # Operator ditentukan nanti
-                )
-                print(f"✅ Batch {self.nomor_batch} dipindahkan ke {self.ruangan.tahap_berikutnya.nama}")
-            else:
-                print(f"⚠️ Batch {self.nomor_batch} sudah ada di {self.ruangan.tahap_berikutnya.nama}")
-        else:
-            print(f"⚠️ Tidak ada tahap berikutnya untuk batch {self.nomor_batch}")
-
-
-    def __str__(self):
-        return f"{self.nomor_batch} - {self.nama} ({self.get_status_display()})"
-
-    class Meta:
-        verbose_name = "Proses Produksi"
-        verbose_name_plural = "Proses Produksi"
+    @property
+    def progress_labelling_display(self):
+        if self.jumlah_kemasan and self.jumlah:
+            return f"{self.jumlah_kemasan} / {self.jumlah} {self.get_satuan_kemasan_display()}"
+        return "-"
 
 class RiwayatProduksi(models.Model):
     nomor_batch = models.CharField(max_length=20)
@@ -213,6 +143,7 @@ class RiwayatProduksi(models.Model):
     operator = models.ForeignKey(Operator, on_delete=models.CASCADE, null=True, blank=True)
     waktu_mulai_produksi = models.DateTimeField()
     waktu_selesai = models.DateTimeField()
+    hasil_akhir = models.CharField(max_length=20, blank=True, null=True)
 
     def __str__(self):
         return f"Riwayat: {self.nomor_batch} di {self.ruangan.nama}"
