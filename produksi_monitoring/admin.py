@@ -71,9 +71,16 @@ class ItemDescriptionAdmin(admin.ModelAdmin):
 def pilih_ruangan_dan_operator(modeladmin, request, queryset):
     batch_to_move = []
     for proses in queryset:
+        # ✅ Cek status selesai diproses
         if not proses.status.startswith("Selesai Diproses di"):
             modeladmin.message_user(request, "Hanya batch yang telah selesai diproses di ruangan yang bisa dipindahkan.", level="error")
             return
+        
+        # ✅ Tambahkan validasi untuk ruang proses dan hasil akhir
+        if "proses" in proses.ruangan.nama.lower() and proses.hasil_akhir != "Release":
+            modeladmin.message_user(request, f"Batch {proses.nomor_batch} tidak bisa dipindahkan karena hasil akhirnya bukan 'Release'.", level="error")
+            return
+
         batch_to_move.append(proses.pk)
 
     request.session['batch_to_move'] = batch_to_move

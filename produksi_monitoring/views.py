@@ -117,8 +117,8 @@ def pindahkan_batch_ke_ruangan_form(request, nomor_batch):
 
     # Validasi pemindahan berdasarkan jenis ruangan
     if "proses" in produksi.ruangan.nama.lower():
-        if produksi.status != "Selesai Produksi" or produksi.hasil_akhir != "Release":
-            messages.error(request, "Batch di ruang Proses hanya bisa dipindahkan setelah ditandai 'Release'.")
+        if produksi.hasil_akhir != "Release":
+            messages.error(request, "Batch di ruang Proses hanya bisa dipindahkan jika hasil akhir adalah 'Release'.")
             return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
     else:
         if produksi.status not in ["Selesai Produksi", f"Selesai Diproses di {produksi.ruangan.nama}"]:
