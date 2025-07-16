@@ -1,4 +1,5 @@
 from django.urls import path
+from . import views
 from .views import (
     dashboard,
     monitoring_produksi_per_ruangan,
@@ -12,9 +13,12 @@ from .views import (
 
 urlpatterns = [
     path('', dashboard, name='dashboard'),
+    path('get_produksi_data/', views.get_produksi_data, name='get_produksi_data'),
 
-    # Monitoring ruangan
-    path('monitoring/<slug:ruangan_nama>/', monitoring_produksi_per_ruangan, name='monitoring_per_ruangan'),
+    # Monitoring index harus sebelum slug
+    path("monitoring/", views.monitoring_index, name="monitoring_index"),
+    # urls.py
+    path("monitoring/<slug:ruangan_slug>/", monitoring_produksi_per_ruangan, name='monitoring_per_ruangan'),
 
     # Update progress dan status produksi oleh operator
     path("update_progress/<int:produksi_id>/", update_progress, name="update_progress"),

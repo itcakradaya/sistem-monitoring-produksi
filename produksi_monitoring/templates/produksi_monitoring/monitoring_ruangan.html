@@ -52,23 +52,26 @@
         .card-body {
             overflow-x: auto;
         }
+
         .ruangan-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto;
+            display: flex;
+            flex-wrap: wrap;
             gap: 10px;
+            justify-content: space-between;
         }
-        .card-menunggu {
-            grid-column: 1 / 2;
-            grid-row: 1 / 2;
-        }
-        .card-diproses {
-            grid-column: 1 / 2;
-            grid-row: 2 / 3;
-        }
+
+        .card-menunggu,
+        .card-diproses,
         .card-selesai {
-            grid-column: 2 / 3;
-            grid-row: 1 / 3;
+            flex: 1 1 calc(50% - 10px); /* 2 kolom sejajar default */
+        }
+
+        @media (max-width: 900px), (orientation: portrait) {
+            .card-menunggu,
+            .card-diproses,
+            .card-selesai {
+                flex: 1 1 100%; /* Stack 1 kolom di layar sempit atau portrait */
+            }
         }
 
         .card {
@@ -77,6 +80,7 @@
             padding: 15px;
             background: white;
         }
+
         .card-header {
             font-size: 18px;
             font-weight: bold;
@@ -86,24 +90,22 @@
             text-align: center;
             border-radius: 10px 10px 0 0;
         }
+
         .styled-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
         }
+
         .styled-table th, .styled-table td {
             border: 1px solid #ddd;
             padding: 10px;
             text-align: center;
         }
+
         .styled-table th {
             background-color: hsl(219, 98%, 39%);
             color: white;
-        }
-        @media (max-width: 768px) {
-            .ruangan-container {
-                grid-template-columns: 1fr;
-            }
         }
     </style>
 </head>
@@ -267,102 +269,115 @@
             </div>
         </div>
 <!-- Selesai Produksi -->
-<div class="card card-selesai">
-    <div class="card-header">Riwayat Produksi di Ruangan Ini ✅</div>
-    <div class="card-body">
-        <table class="styled-table">
-            <thead>
-                <tr>
-                    <th>Nomor Batch</th>
-                    <th>Nama Produk</th>
-                    <th>Jumlah</th>
-                    <th>Waktu Selesai</th>
-                    <th>Operator</th>
-                    {% if "proses" in ruangan.nama|lower %}
-                        <th>Hasil Akhir</th>
-                    {% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for produk in proses_selesai %}
-                <tr class="status-selesai">
-                    <td>{{ produk.nomor_batch }}</td>
-                    <td>{{ produk.nama_produk.description }}</td>
-                    <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
-                    <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
-                    <td>{{ produk.operator }}</td>
-                    {% if "proses" in ruangan.nama|lower %}
+ {% if 'labelling' not in ruangan.nama|lower %}
+    <div class="card card-selesai">
+        <div class="card-header">Riwayat Produksi di Ruangan Ini ✅</div>
+        <div class="card-body">
+            <form method="get" style="text-align: right; margin-bottom: 10px;">
+                <label for="limit">Tampilkan:</label>
+                <select name="limit" id="limit" onchange="this.form.submit()">
+                    <option value="5" {% if limit == '5' %}selected{% endif %}>5</option>
+                    <option value="10" {% if limit == '10' %}selected{% endif %}>10</option>
+                    <option value="25" {% if limit == '25' %}selected{% endif %}>25</option>
+                    <option value="50" {% if limit == '50' %}selected{% endif %}>50</option>
+                    <option value="semua" {% if limit == 'semua' %}selected{% endif %}>Semua</option>
+                </select>
+            </form>
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Nomor Batch</th>
+                        <th>Nama Produk</th>
+                        <th>Jumlah</th>
+                        <th>Waktu Selesai</th>
+                        <th>Operator</th>
+                        {% if "proses" in ruangan.nama|lower %}
+                            <th>Hasil Akhir</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for produk in proses_selesai %}
+                    <tr class="status-selesai">
+                        <td>{{ produk.nomor_batch }}</td>
+                        <td>{{ produk.nama_produk.description }}</td>
+                        <td>{{ produk.jumlah }} {{ produk.satuan }}</td>
+                        <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                        <td>{{ produk.operator }}</td>
+                        {% if "proses" in ruangan.nama|lower %}
+                            <td>
+                                {% if produk.hasil_akhir %}
+                                    {% if produk.hasil_akhir == "Release" %}
+                                        <span style="color: green; font-weight: bold;">Release</span>
+                                    {% elif produk.hasil_akhir == "Reject" %}
+                                        <span style="color: red; font-weight: bold;">Reject</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span>-</span>
+                                {% endif %}
+                            </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if "labelling" in ruangan.nama|lower %}
+    <div class="card card-selesai">
+        <div class="card-header">📌 Riwayat Produksi di Ruang Labelling ✅</div>
+        <div class="card-body">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Nomor Batch</th>
+                        <th>Nama Produk</th>
+                        <th>Jumlah Kemasan Produk</th>
+                        <th>Waktu Mulai Produksi</th>
+                        <th>Waktu Selesai</th>
+                        <th>Operator</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for produk in riwayat_produksi %}
+                    <tr class="status-selesai">
+                        <td>{{ produk.nomor_batch }}</td>
+                        <td>{{ produk.nama.description }}</td>
                         <td>
-                            {% if produk.hasil_akhir %}
-                                {% if produk.hasil_akhir == "Release" %}
-                                    <span style="color: green; font-weight: bold;">Release</span>
-                                {% elif produk.hasil_akhir == "Reject" %}
-                                    <span style="color: red; font-weight: bold;">Reject</span>
+                            {% if produk.estimasi_jumlah_kemasan %}
+                                <strong>Estimasi:</strong> {{ produk.estimasi_jumlah_kemasan }} {{ produk.get_satuan_kemasan_display }}<br>
+                                <strong>Realisasi:</strong> {{ produk.jumlah_kemasan|default:"0" }} {{ produk.get_satuan_kemasan_display }}<br>
+                                <strong>Akurasi:</strong>
+                                {% if produk.akurasi_persen %}
+                                    {% if produk.akurasi_persen >= 90 %}
+                                        <span style="color: green;">{{ produk.akurasi_persen }}%</span>
+                                    {% elif produk.akurasi_persen >= 70 %}
+                                        <span style="color: orange;">{{ produk.akurasi_persen }}%</span>
+                                    {% else %}
+                                        <span style="color: red;">{{ produk.akurasi_persen }}%</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span>-</span>
                                 {% endif %}
                             {% else %}
-                                <span>-</span>
+                                <strong>Realisasi:</strong> {{ produk.jumlah_kemasan|default:"0" }} {{ produk.get_satuan_kemasan_display }}
                             {% endif %}
                         </td>
-                    {% endif %}
-                </tr>
-                {% empty %}
-                <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
+                        <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
+                        <td>{{ produk.operator }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
-</div>
-{% if "labelling" in ruangan.nama|lower %}
-<div class="card card-selesai">
-    <div class="card-header">📌 Riwayat Produksi di Ruang Labelling ✅</div>
-    <div class="card-body">
-        <table class="styled-table">
-            <thead>
-                <tr>
-                    <th>Nomor Batch</th>
-                    <th>Nama Produk</th>
-                    <th>Jumlah Kemasan Produk</th>
-                    <th>Waktu Mulai Produksi</th>
-                    <th>Waktu Selesai</th>
-                    <th>Operator</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for produk in riwayat_produksi %}
-                <tr class="status-selesai">
-                    <td>{{ produk.nomor_batch }}</td>
-                    <td>{{ produk.nama.description }}</td>
-                    <td>
-                        {% if produk.estimasi_jumlah_kemasan %}
-                            <strong>Estimasi:</strong> {{ produk.estimasi_jumlah_kemasan }} {{ produk.get_satuan_kemasan_display }}<br>
-                            <strong>Realisasi:</strong> {{ produk.jumlah_kemasan|default:"0" }} {{ produk.get_satuan_kemasan_display }}<br>
-                            <strong>Akurasi:</strong>
-                            {% if produk.akurasi_persen %}
-                                {% if produk.akurasi_persen >= 90 %}
-                                    <span style="color: green;">{{ produk.akurasi_persen }}%</span>
-                                {% elif produk.akurasi_persen >= 70 %}
-                                    <span style="color: orange;">{{ produk.akurasi_persen }}%</span>
-                                {% else %}
-                                    <span style="color: red;">{{ produk.akurasi_persen }}%</span>
-                                {% endif %}
-                            {% else %}
-                                <span>-</span>
-                            {% endif %}
-                        {% else %}
-                            <strong>Realisasi:</strong> {{ produk.jumlah_kemasan|default:"0" }} {{ produk.get_satuan_kemasan_display }}
-                        {% endif %}
-                    </td>
-                    <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
-                    <td>{{ produk.waktu_selesai|date:"d M Y, H:i" }}</td>
-                    <td>{{ produk.operator }}</td>
-                </tr>
-                {% empty %}
-                <tr><td colspan="6">Belum ada riwayat produksi di ruangan ini.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
 {% endif %}
 <script>
     function updateDateTime() {
@@ -383,7 +398,7 @@
         document.getElementById("tanggal-waktu").innerText = waktuFormatted;
     }
 
-    setInterval(updateDateTime, 1000);
+    setInterval(updateDateTime, 5000);
     updateDateTime();
 
     function validasiJumlah(input, jumlah, progress) {
@@ -395,4 +410,72 @@
             input.value = sisa;
         }
     }
+
+ // Fungsi untuk mengupdate tabel dengan data terbaru
+ function updateTable(data) {
+        const tbody = document.getElementById('produksi-tbody');
+        tbody.innerHTML = '';  // Kosongkan tabel sebelumnya
+
+        data.forEach((produk) => {
+            const row = document.createElement('tr');
+            
+            // Buat elemen td untuk setiap kolom
+            const tdBatch = document.createElement('td');
+            tdBatch.innerText = produk.nomor_batch;
+
+            const tdProduk = document.createElement('td');
+            tdProduk.innerText = produk.nama_produk;
+
+            const tdJumlah = document.createElement('td');
+            tdJumlah.innerText = produk.jumlah;
+
+            const tdWaktuSelesai = document.createElement('td');
+            tdWaktuSelesai.innerText = produk.waktu_selesai;
+
+            const tdOperator = document.createElement('td');
+            tdOperator.innerText = produk.operator;
+
+            const tdHasilAkhir = document.createElement('td');
+            tdHasilAkhir.innerText = produk.hasil_akhir ? produk.hasil_akhir : '-';
+
+            // Gabungkan semua td ke dalam satu row
+            row.appendChild(tdBatch);
+            row.appendChild(tdProduk);
+            row.appendChild(tdJumlah);
+            row.appendChild(tdWaktuSelesai);
+            row.appendChild(tdOperator);
+            row.appendChild(tdHasilAkhir);
+
+            // Tambahkan row ke dalam tbody
+            tbody.appendChild(row);
+        });
+    }
+
+    // Fungsi untuk mengambil data dari server menggunakan AJAX
+    function fetchData() {
+        fetch('/get_produksi_data/')  // Endpoint untuk mendapatkan data produksi
+            .then(response => response.json())
+            .then(data => {
+                updateTable(data);  // Update tabel dengan data terbaru
+            })
+            .catch(error => console.error('Error fetching data:', error));
+    }
+
+    // Polling setiap 5 detik untuk mendapatkan data terbaru
+    setInterval(fetchData, 5000);  // Sesuaikan dengan interval waktu yang Anda inginkan
+    fetchData();  // Panggil sekali saat halaman dimuat
+    // Coba masuk fullscreen saat load (jika diizinkan browser)
+    document.addEventListener('DOMContentLoaded', () => {
+        const elem = document.documentElement;
+
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(err => {
+                console.warn('Fullscreen gagal:', err);
+            });
+        } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+            elem.msRequestFullscreen();
+        }
+    });
 </script>

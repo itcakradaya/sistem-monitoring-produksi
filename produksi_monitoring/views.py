@@ -4,11 +4,23 @@ from django.urls import reverse
 from django.utils.text import slugify
 from django.http import JsonResponse, HttpResponseRedirect
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
-from django.middleware.csrf import get_token
 from django.contrib import messages
 from .models import Ruangan, ProsesProduksi, Operator, RiwayatProduksi  
-from django.db import transaction
+from django.http import JsonResponse
+
+def get_produksi_data(request):
+    # Ambil seluruh data produksi di ruang penimbangan
+    produksi_data = ProsesProduksi.objects.filter(ruangan__nama="Penimbangan").values(
+        'nomor_batch',
+        'nama_produk__description',  # Menampilkan nama produk
+        'jumlah',
+        'waktu_selesai',
+        'operator__nama',  # Menampilkan nama operator
+        'hasil_akhir'
+    )
+    
+    # Mengirimkan data dalam format JSON
+    return JsonResponse(list(produksi_data), safe=False)
 
 def dashboard(request):
     """Menampilkan daftar ruangan produksi yang tersedia."""
@@ -16,9 +28,10 @@ def dashboard(request):
     return render(request, 'produksi_monitoring/dashboard.html', {"ruangan_list": ruangan_list})
 
 @login_required
-def monitoring_produksi_per_ruangan(request, ruangan_nama):
-    """Menampilkan monitoring produksi untuk ruangan tertentu."""
-    ruangan = get_object_or_404(Ruangan, nama__iexact=ruangan_nama.replace("-", " "))
+def monitoring_produksi_per_ruangan(request, ruangan_slug):
+    ruangan = get_object_or_404(Ruangan, slug=ruangan_slug)
+    is_operator = request.user.groups.filter(name='operator').exists()
+
 
     # 🔄 Update status otomatis jika produksi sudah waktunya diproses
     ProsesProduksi.objects.filter(status="Menunggu", waktu_mulai_produksi__lte=now()).update(status="Sedang Diproses")
@@ -33,20 +46,65 @@ def monitoring_produksi_per_ruangan(request, ruangan_nama):
         nomor_batch__in=proses_produksi.values_list('nomor_batch', flat=True),
         waktu_selesai__gte=tujuh_hari_lalu
     ).values_list('nomor_batch', flat=True).distinct()
+    # Ambil jumlah tampilan dari parameter GET
+    limit = request.GET.get('limit', '10')
 
-    selesai = RiwayatProduksi.objects.filter(
+    riwayat_queryset = RiwayatProduksi.objects.filter(
         ruangan=ruangan
-    ).select_related('ruangan').order_by('-waktu_selesai') [:10]
+    ).select_related('ruangan').order_by('-waktu_selesai')
 
-    
+    # Batasi jumlah hasil sesuai pilihan user
+    if limit != 'semua':
+        try:
+            limit_int = int(limit)
+            riwayat_queryset = riwayat_queryset[:limit_int]
+        except ValueError:
+            riwayat_queryset = riwayat_queryset[:10]
+
+    selesai = riwayat_queryset
     riwayat_labelling = None
     if "labelling" in ruangan.nama.lower():
-        riwayat_labelling = ProsesProduksi.objects.filter(
-            ruangan=ruangan,
-            status="Selesai Produksi"
-        ).order_by('-waktu_selesai') [:10] 
+        if limit != 'semua':
+            try:
+                limit_int = int(limit)
+                riwayat_labelling = ProsesProduksi.objects.filter(
+                    ruangan=ruangan,
+                    status="Selesai Produksi"
+                ).order_by('-waktu_selesai')[:limit_int]
+            except ValueError:
+                riwayat_labelling = ProsesProduksi.objects.filter(
+                    ruangan=ruangan,
+                    status="Selesai Produksi"
+                ).order_by('-waktu_selesai')[:10]
+        else:
+            riwayat_labelling = ProsesProduksi.objects.filter(
+                ruangan=ruangan,
+                status="Selesai Produksi"
+            ).order_by('-waktu_selesai')
+        riwayat_labelling = None  # default None
+    selesai = None  # default None
 
-        # 🔁 Hitung akurasi estimasi vs realisasi
+    if "labelling" in ruangan.nama.lower():
+        # tampilkan khusus untuk Labelling
+        if limit != 'semua':
+            try:
+                limit_int = int(limit)
+                riwayat_labelling = ProsesProduksi.objects.filter(
+                    ruangan=ruangan,
+                    status="Selesai Produksi"
+                ).order_by('-waktu_selesai')[:limit_int]
+            except ValueError:
+                riwayat_labelling = ProsesProduksi.objects.filter(
+                    ruangan=ruangan,
+                    status="Selesai Produksi"
+                ).order_by('-waktu_selesai')[:10]
+        else:
+            riwayat_labelling = ProsesProduksi.objects.filter(
+                ruangan=ruangan,
+                status="Selesai Produksi"
+            ).order_by('-waktu_selesai')
+
+        # Hitung akurasi
         for item in riwayat_labelling:
             if item.estimasi_jumlah_kemasan and item.jumlah_kemasan:
                 try:
@@ -55,16 +113,65 @@ def monitoring_produksi_per_ruangan(request, ruangan_nama):
                     item.akurasi_persen = 0
             else:
                 item.akurasi_persen = None
-        
-    return render(request, "produksi_monitoring/monitoring_ruangan.html", {
+    else:
+        # ruangan lain pakai RiwayatProduksi
+        riwayat_queryset = RiwayatProduksi.objects.filter(
+            ruangan=ruangan
+        ).select_related('ruangan').order_by('-waktu_selesai')
+
+        if limit != 'semua':
+            try:
+                limit_int = int(limit)
+                riwayat_queryset = riwayat_queryset[:limit_int]
+            except ValueError:
+                riwayat_queryset = riwayat_queryset[:10]
+
+        selesai = riwayat_queryset
+
+    if "labelling" in ruangan.nama.lower():
+        return render(request, "produksi_monitoring/monitoring_ruangan.html", {
+            "ruangan": ruangan,
+            "proses_menunggu": menunggu,
+            "proses_diproses": diproses,
+            "proses_siap_pindah": siap_pindah,
+            "proses_selesai": None,  # ⛔ Jangan tampilkan RiwayatProduksi
+            "riwayat_produksi": riwayat_labelling,
+            "limit": limit,
+            "is_operator": is_operator, 
+        })
+    else:
+        return render(request, "produksi_monitoring/monitoring_ruangan.html", {
+            "ruangan": ruangan,
+            "proses_menunggu": menunggu,
+            "proses_diproses": diproses,
+            "proses_siap_pindah": siap_pindah,
+            "proses_selesai": selesai,
+            "riwayat_produksi": None,  # ⛔ Jangan tampilkan ProsesProduksi untuk ruangan selain Labelling
+            "limit": limit,
+            "is_operator": is_operator, 
+    })
+
+    context = {
         "ruangan": ruangan,
         "proses_menunggu": menunggu,
         "proses_diproses": diproses,
         "proses_siap_pindah": siap_pindah,
-        "proses_selesai": selesai,
-        "riwayat_produksi": riwayat_labelling,
-    })
+        "limit": limit,
+    }
 
+    if "labelling" in ruangan.nama.lower():
+        context["riwayat_produksi"] = riwayat_labelling
+    else:
+        context["proses_selesai"] = selesai
+
+    return render(request, "produksi_monitoring/monitoring_ruangan.html", context)
+
+
+
+
+
+      
+      
 # ✅ OPERATOR MENANDAI SELESAI
 @login_required
 def operator_tandai_selesai(request, produksi_id):
@@ -196,58 +303,70 @@ def pilih_ruangan_proses(request):
         "ruangan_list": Ruangan.objects.exclude(nama__icontains="penimbangan"),
         "operator_list": Operator.objects.all(),
     })
-
 @login_required
 def update_progress(request, produksi_id):
     produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
 
     if request.method == "POST":
-        # 🔍 Jika ruang labelling → input jumlah kemasan manual
+        nama_ruangan = produksi.ruangan.nama.lower()
+
+        # 💡 Ruang Labelling → input jumlah kemasan manual
         if "jumlah_kemasan" in request.POST:
             jumlah = int(request.POST.get("jumlah_kemasan", 0))
             satuan = request.POST.get("satuan_kemasan", "")
-
             if jumlah < 1:
                 messages.error(request, "Jumlah kemasan harus lebih dari 0.")
                 return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
-            
+
             produksi.jumlah_kemasan = (produksi.jumlah_kemasan or 0) + jumlah
             produksi.satuan_kemasan = satuan
             produksi.save()
-
             messages.success(request, "Jumlah kemasan berhasil disimpan.")
             return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
-        # 💡 Ruangan lain → input jumlah_terproses
+        # 💡 Ruang lain → input jumlah_terproses
         jumlah_terproses = int(request.POST.get("jumlah_terproses", 0))
-        if jumlah_terproses < 1:
-            messages.error(request, "Jumlah yang diproses harus lebih dari 0.")
-            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
-        if produksi.progress + jumlah_terproses > produksi.jumlah:
-            sisa = produksi.jumlah - produksi.progress
-            messages.error(request, f"Jumlah terproses ({jumlah_terproses}) melebihi sisa target produksi ({sisa}).")
-            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+        if jumlah_terproses > 0:
+            if produksi.progress + jumlah_terproses > produksi.jumlah:
+                sisa = produksi.jumlah - produksi.progress
+                messages.error(request, f"Jumlah terproses ({jumlah_terproses}) melebihi sisa target produksi ({sisa}).")
+                return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
-        produksi.progress += jumlah_terproses
-        produksi.waktu_mulai_produksi = produksi.waktu_mulai_produksi or now()
+            produksi.progress += jumlah_terproses
+            produksi.waktu_mulai_produksi = produksi.waktu_mulai_produksi or now()
 
+        # ✅ Cek jika progress sudah selesai → otomatis update
         if produksi.progress >= produksi.jumlah:
-            produksi.progress = produksi.jumlah
+            produksi.progress = produksi.jumlah  # pastikan pas
+            produksi.waktu_mulai_produksi = produksi.waktu_mulai_produksi or now()
 
-            if "proses" in produksi.ruangan.nama.lower():
-                 # Untuk ruangan proses → tunggu hasil akhir dari operator
+            if "proses" in nama_ruangan:
                 messages.info(request, "Produksi sudah mencapai jumlah maksimal. Silakan pilih hasil akhir (Release / Reject).")
-            else:
-                # Ruangan lain langsung tandai selesai
+            elif "filling" in nama_ruangan or "penimbangan" in nama_ruangan:
                 produksi.status = f"Selesai Diproses di {produksi.ruangan.nama}"
                 produksi.waktu_selesai = now()
-                messages.success(request, f"Produksi di {produksi.ruangan.nama} telah selesai.")
 
+                # ⏺️ Tambahkan ke riwayat jika belum ada
+                RiwayatProduksi.objects.get_or_create(
+                    nomor_batch=produksi.nomor_batch,
+                    nama_produk=produksi.nama,
+                    jumlah=produksi.jumlah,
+                    satuan=produksi.satuan,
+                    ruangan=produksi.ruangan,
+                    operator=produksi.operator,
+                    waktu_mulai_produksi=produksi.waktu_mulai_produksi,
+                    waktu_selesai=produksi.waktu_selesai,
+                    hasil_akhir="Release"
+                )
+                messages.success(request, f"Produksi di {produksi.ruangan.nama} telah selesai.")
+            else:
+                messages.warning(request, "Nama ruangan tidak dikenali. Status tidak diperbarui otomatis.")
 
         produksi.save()
         messages.success(request, f"Batch {produksi.nomor_batch} berhasil diupdate.")
         return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
 
 @login_required
 def operator_tentukan_hasil_akhir(request, produksi_id):
@@ -337,4 +456,16 @@ def tandai_selesai_labelling(request, nomor_batch):
     messages.success(request, f"Batch {produksi.nomor_batch} telah ditandai selesai produksi.")
     return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
 
+def monitoring_index(request):
+    ruangan_penimbangan = Ruangan.objects.filter(nama__icontains='Penimbangan').first()
+    ruang_proses = Ruangan.objects.filter(nama__icontains='Proses')
+    ruang_filling = Ruangan.objects.filter(nama__icontains='Filling')
+    ruang_labelling = Ruangan.objects.filter(nama__icontains='Labelling')
 
+    context = {
+        'ruangan_penimbangan': ruangan_penimbangan,
+        'ruang_proses': ruang_proses,
+        'ruang_filling': ruang_filling,
+        'ruang_labelling': ruang_labelling,
+    }
+    return render(request, 'monitoring/index.html', context)

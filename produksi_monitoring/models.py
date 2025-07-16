@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.timezone import now
 from django.core.exceptions import ValidationError
-
+from django.utils.text import slugify
 
 class Mesin(models.Model):
     kode_mesin = models.CharField(max_length=10, unique=True, null=True)
@@ -30,6 +30,12 @@ class Ruangan(models.Model):
     mesin = models.ManyToManyField(Mesin, related_name="ruangan")
     jenis_proses = models.CharField(max_length=50, choices=PROSES_CHOICES, default='mixing')
     tahap_berikutnya = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL)
+    slug = models.SlugField(max_length=255, unique=True, blank=True)  
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.nama)  # ✅ otomatis buat slug dari nama
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.nama
@@ -133,6 +139,9 @@ class ProsesProduksi(models.Model):
         if self.jumlah_kemasan and self.jumlah:
             return f"{self.jumlah_kemasan} / {self.jumlah} {self.get_satuan_kemasan_display()}"
         return "-"
+    class Meta:
+        verbose_name = "Proses Produksi"
+        verbose_name_plural = "Proses Produksi"
 
 class RiwayatProduksi(models.Model):
     nomor_batch = models.CharField(max_length=20)
