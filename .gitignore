@@ -3,3 +3,8 @@ __pycache__/
 db.sqlite3
 *.log
 .env
+
+# temp dev copies
+* copy.*
+*copy*.py
+*copy*.html

@@ -1,0 +1,123 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Monitoring Produksi</title>
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background-color: white;
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            height: 50px;
+        }
+
+        .title {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        h2 {
+            font-size: 1.3rem;
+            color: #333;
+            margin-top: 40px;
+        }
+
+        .room-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 15px;
+        }
+
+        .room-card {
+            background-color: #004aad;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+
+        .room-card:hover {
+            background-color: #003080;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <img src="{% static 'img/logo.png' %}" alt="Logo" class="logo">
+        <div class="title">Sistem Monitoring Produksi</div>
+        <div>
+            {% if request.user.is_authenticated %}
+                Selamat datang, <strong>{{ request.user.username }}</strong>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="container">
+        <h1 style="text-align:center;">Dashboard Monitoring Proses Produksi</h1>
+
+        <h2>🔎 Penimbangan</h2>
+        <div class="room-grid">
+            {% if ruangan_penimbangan %}
+                <a href="{% url 'monitoring_per_ruangan' ruangan_penimbangan.slug %}" class="room-card">
+                    {{ ruangan_penimbangan.nama }}
+                </a>
+            {% endif %}
+        </div>
+
+        <h2>⚗️ Ruang Proses</h2>
+        <div class="room-grid">
+            {% for ruangan in ruang_proses %}
+                <a href="{% url 'monitoring_per_ruangan' ruangan.slug %}" class="room-card">
+                    {{ ruangan.nama }}
+                </a>
+            {% endfor %}
+        </div>
+
+        <h2>🏭 Ruang Filling</h2>
+        <div class="room-grid">
+            {% for ruangan in ruang_filling %}
+                <a href="{% url 'monitoring_per_ruangan' ruangan.slug %}" class="room-card">
+                    {{ ruangan.nama }}
+                </a>
+            {% endfor %}
+        </div>
+
+        <h2>🏷️ Ruang Labelling</h2>
+        <div class="room-grid">
+            {% for ruangan in ruang_labelling %}
+                <a href="{% url 'monitoring_per_ruangan' ruangan.slug %}" class="room-card">
+                    {{ ruangan.nama }}
+                </a>
+            {% endfor %}
+        </div>
+
+    </div>
+
+</body>
+</html>
