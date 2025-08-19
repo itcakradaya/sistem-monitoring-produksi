@@ -1,177 +1,160 @@
+from datetime import timedelta
+
 from django.shortcuts import render, get_object_or_404, redirect
-from django.utils.timezone import now, timedelta
+from django.utils.timezone import now
 from django.urls import reverse
 from django.utils.text import slugify
 from django.http import JsonResponse, HttpResponseRedirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from .models import Ruangan, ProsesProduksi, Operator, RiwayatProduksi  
-from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.db import transaction
+from django.db.models import F, Q
+from .models import Ruangan, ProsesProduksi, Operator, RiwayatProduksi, IdempotencyKey, Operator
+import uuid
+from .helpers import ensure_labelling_shadow_from
 
 def get_produksi_data(request):
-    # Ambil seluruh data produksi di ruang penimbangan
-    produksi_data = ProsesProduksi.objects.filter(ruangan__nama="Penimbangan").values(
-        'nomor_batch',
-        'nama_produk__description',  # Menampilkan nama produk
-        'jumlah',
-        'waktu_selesai',
-        'operator__nama',  # Menampilkan nama operator
-        'hasil_akhir'
+    qs = (
+        ProsesProduksi.objects
+        .filter(ruangan__nama__iexact="Penimbangan")
+        .select_related("nama", "operator")  # FK prefetch ke 1 query
+        .only(
+            "nomor_batch", "jumlah", "waktu_selesai", "hasil_akhir",
+            "nama__description", "operator__nama"
+        )
     )
-    
-    # Mengirimkan data dalam format JSON
-    return JsonResponse(list(produksi_data), safe=False)
+
+    data = []
+    for p in qs:
+        data.append({
+            "nomor_batch": p.nomor_batch,
+            "nama_produk": p.nama.description if p.nama_id else None,
+            "jumlah": p.jumlah,
+            "waktu_selesai": p.waktu_selesai,          # JsonResponse pakai DjangoJSONEncoder → OK
+            "operator": p.operator.nama if p.operator_id else None,
+            "hasil_akhir": p.hasil_akhir,
+        })
+
+    return JsonResponse(data, safe=False)
+
+
 
 def dashboard(request):
     """Menampilkan daftar ruangan produksi yang tersedia."""
     ruangan_list = Ruangan.objects.all()
     return render(request, 'produksi_monitoring/dashboard.html', {"ruangan_list": ruangan_list})
 
+from django.contrib.auth.decorators import login_required
+from django.db.models import Q
+from django.shortcuts import get_object_or_404, render
+from django.utils.timezone import now
+from datetime import timedelta
+
 @login_required
 def monitoring_produksi_per_ruangan(request, ruangan_slug):
     ruangan = get_object_or_404(Ruangan, slug=ruangan_slug)
-    is_operator = request.user.groups.filter(name='operator').exists()
+    is_operator = request.user.groups.filter(name__iexact='operator').exists()
 
+    auto_qs = (
+        ProsesProduksi.objects
+        .filter(status="Menunggu", waktu_mulai_produksi__lte=now())
+        .exclude(ruangan__nama__icontains="labell")
+        .select_related("ruangan")
+    )
 
-    # 🔄 Update status otomatis jika produksi sudah waktunya diproses
-    ProsesProduksi.objects.filter(status="Menunggu", waktu_mulai_produksi__lte=now()).update(status="Sedang Diproses")
+    for p in auto_qs:
+        p.status = "Sedang Diproses"
+        if not p.waktu_mulai_produksi:
+            p.waktu_mulai_produksi = now()
+        p.save(update_fields=["status", "waktu_mulai_produksi"])
 
+        # jika sumbernya Filling → buat shadow di Labelling
+        if "fill" in (p.ruangan.nama or "").lower():
+            try:
+                ensure_labelling_shadow_from(p)
+            except Exception:
+                pass
+
+    # Dataset utama per ruangan
     proses_produksi = ProsesProduksi.objects.filter(ruangan=ruangan)
-    menunggu = proses_produksi.filter(status="Menunggu").order_by('waktu_mulai_produksi')
-    diproses = proses_produksi.filter(status="Sedang Diproses").order_by('waktu_mulai_produksi')
+    menunggu    = proses_produksi.filter(status="Menunggu").order_by('waktu_mulai_produksi')
+    diproses    = proses_produksi.filter(status="Sedang Diproses").order_by('waktu_mulai_produksi')
     siap_pindah = proses_produksi.filter(status="Siap Dipindahkan").order_by('-waktu_selesai')
 
+    # Masih disiapkan seperti kode kamu (walau belum dipakai di template)
     tujuh_hari_lalu = now() - timedelta(days=7)
     batch_pernah_di_ruangan = ProsesProduksi.objects.filter(
         nomor_batch__in=proses_produksi.values_list('nomor_batch', flat=True),
         waktu_selesai__gte=tujuh_hari_lalu
     ).values_list('nomor_batch', flat=True).distinct()
-    # Ambil jumlah tampilan dari parameter GET
+
+    # Ambil & terapkan limit
     limit = request.GET.get('limit', '10')
-
-    riwayat_queryset = RiwayatProduksi.objects.filter(
-        ruangan=ruangan
-    ).select_related('ruangan').order_by('-waktu_selesai')
-
-    # Batasi jumlah hasil sesuai pilihan user
-    if limit != 'semua':
+    def apply_limit(qs):
+        if limit == 'semua':
+            return qs
         try:
-            limit_int = int(limit)
-            riwayat_queryset = riwayat_queryset[:limit_int]
-        except ValueError:
-            riwayat_queryset = riwayat_queryset[:10]
+            return qs[:int(limit)]
+        except (TypeError, ValueError):
+            return qs[:10]
 
-    selesai = riwayat_queryset
-    riwayat_labelling = None
-    if "labelling" in ruangan.nama.lower():
-        if limit != 'semua':
-            try:
-                limit_int = int(limit)
-                riwayat_labelling = ProsesProduksi.objects.filter(
-                    ruangan=ruangan,
-                    status="Selesai Produksi"
-                ).order_by('-waktu_selesai')[:limit_int]
-            except ValueError:
-                riwayat_labelling = ProsesProduksi.objects.filter(
-                    ruangan=ruangan,
-                    status="Selesai Produksi"
-                ).order_by('-waktu_selesai')[:10]
-        else:
-            riwayat_labelling = ProsesProduksi.objects.filter(
-                ruangan=ruangan,
-                status="Selesai Produksi"
-            ).order_by('-waktu_selesai')
-        riwayat_labelling = None  # default None
-    selesai = None  # default None
-
-    if "labelling" in ruangan.nama.lower():
-        # tampilkan khusus untuk Labelling
-        if limit != 'semua':
-            try:
-                limit_int = int(limit)
-                riwayat_labelling = ProsesProduksi.objects.filter(
-                    ruangan=ruangan,
-                    status="Selesai Produksi"
-                ).order_by('-waktu_selesai')[:limit_int]
-            except ValueError:
-                riwayat_labelling = ProsesProduksi.objects.filter(
-                    ruangan=ruangan,
-                    status="Selesai Produksi"
-                ).order_by('-waktu_selesai')[:10]
-        else:
-            riwayat_labelling = ProsesProduksi.objects.filter(
-                ruangan=ruangan,
-                status="Selesai Produksi"
-            ).order_by('-waktu_selesai')
-
-        # Hitung akurasi
-        for item in riwayat_labelling:
-            if item.estimasi_jumlah_kemasan and item.jumlah_kemasan:
-                try:
-                    item.akurasi_persen = round((item.jumlah_kemasan / item.estimasi_jumlah_kemasan) * 100, 2)
-                except ZeroDivisionError:
-                    item.akurasi_persen = 0
-            else:
-                item.akurasi_persen = None
-    else:
-        # ruangan lain pakai RiwayatProduksi
-        riwayat_queryset = RiwayatProduksi.objects.filter(
-            ruangan=ruangan
-        ).select_related('ruangan').order_by('-waktu_selesai')
-
-        if limit != 'semua':
-            try:
-                limit_int = int(limit)
-                riwayat_queryset = riwayat_queryset[:limit_int]
-            except ValueError:
-                riwayat_queryset = riwayat_queryset[:10]
-
-        selesai = riwayat_queryset
-
-    if "labelling" in ruangan.nama.lower():
-        return render(request, "produksi_monitoring/monitoring_ruangan.html", {
-            "ruangan": ruangan,
-            "proses_menunggu": menunggu,
-            "proses_diproses": diproses,
-            "proses_siap_pindah": siap_pindah,
-            "proses_selesai": None,  # ⛔ Jangan tampilkan RiwayatProduksi
-            "riwayat_produksi": riwayat_labelling,
-            "limit": limit,
-            "is_operator": is_operator, 
-        })
-    else:
-        return render(request, "produksi_monitoring/monitoring_ruangan.html", {
-            "ruangan": ruangan,
-            "proses_menunggu": menunggu,
-            "proses_diproses": diproses,
-            "proses_siap_pindah": siap_pindah,
-            "proses_selesai": selesai,
-            "riwayat_produksi": None,  # ⛔ Jangan tampilkan ProsesProduksi untuk ruangan selain Labelling
-            "limit": limit,
-            "is_operator": is_operator, 
-    })
-
+    # Context dasar
     context = {
         "ruangan": ruangan,
         "proses_menunggu": menunggu,
         "proses_diproses": diproses,
         "proses_siap_pindah": siap_pindah,
         "limit": limit,
+        "is_operator": is_operator,
     }
 
-    if "labelling" in ruangan.nama.lower():
-        context["riwayat_produksi"] = riwayat_labelling
+    # Cabang khusus Labelling
+    if "labelling" in (ruangan.nama or "").lower():
+        riwayat_labelling = apply_limit(
+            ProsesProduksi.objects.filter(
+                ruangan=ruangan, status="Selesai Produksi"
+            ).order_by('-waktu_selesai')
+        )
+
+        # hitung akurasi tampilan
+        for item in riwayat_labelling:
+            if item.estimasi_jumlah_kemasan:
+                try:
+                    item.akurasi_persen = round(
+                        (item.jumlah_kemasan or 0) * 100 / item.estimasi_jumlah_kemasan, 2
+                    )
+                except ZeroDivisionError:
+                    item.akurasi_persen = None
+            else:
+                item.akurasi_persen = None
+
+        # Operator khusus kategori Labelling saja
+        operator_list = Operator.objects.filter(
+            Q(kategori__iexact='Labelling') | Q(kategori__icontains='label')
+        ).order_by('nama')
+
+        context.update({
+            "proses_selesai": None,               # nonaktifkan riwayat umum
+            "riwayat_produksi": riwayat_labelling,
+            "operator_list": operator_list,
+        })
     else:
-        context["proses_selesai"] = selesai
+        # Ruangan lain → pakai RiwayatProduksi
+        riwayat_queryset = apply_limit(
+            RiwayatProduksi.objects.filter(ruangan=ruangan)
+                                   .select_related('ruangan')
+                                   .order_by('-waktu_selesai')
+        )
+
+        context.update({
+            "proses_selesai": riwayat_queryset,
+            "riwayat_produksi": None,
+            "operator_list": Operator.objects.none(),  # tidak dipakai di non-labelling
+        })
 
     return render(request, "produksi_monitoring/monitoring_ruangan.html", context)
-
-
-
-
-
-      
-      
+        
 # ✅ OPERATOR MENANDAI SELESAI
 @login_required
 def operator_tandai_selesai(request, produksi_id):
@@ -190,21 +173,44 @@ def operator_tandai_selesai(request, produksi_id):
     return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/"))
 
 @login_required
+@require_POST
 def tandai_sedang_diproses(request, produksi_id):
-    """Operator menandai proses produksi sebagai 'Sedang Diproses'."""
-    produksi = get_object_or_404(ProsesProduksi, id=produksi_id)
+    """
+    Menandai proses jadi 'Sedang Diproses'.
+    Jika sumbernya Filling, pastikan nomor batch muncul juga di Ruang Labelling (status 'Menunggu').
+    """
+    with transaction.atomic():
+        # Lock row untuk hindari double-click / race
+        produksi = get_object_or_404(
+            ProsesProduksi.objects.select_for_update(),
+            id=produksi_id
+        )
 
-    if produksi.status == "Menunggu":
+        if produksi.status != "Menunggu":
+            messages.error(request, "Batch ini tidak bisa ditandai sedang diproses.")
+            return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
+        # Update status & waktu mulai (jaga kalau sudah ada nilainya)
         produksi.status = "Sedang Diproses"
-        produksi.waktu_mulai_produksi = now()
-        produksi.progress = 0
+        if not produksi.waktu_mulai_produksi:
+            produksi.waktu_mulai_produksi = now()
+
+        # Amanin jika model punya field progress
+        if hasattr(produksi, "progress") and (produksi.progress is None or produksi.progress < 0):
+            produksi.progress = 0
+
         produksi.save()
 
-        messages.success(request, f"Batch {produksi.nomor_batch} sekarang sedang diproses.")
-    else:
-        messages.error(request, "Batch ini tidak bisa ditandai sedang diproses.")
+        # Jika dari Filling → buat/mastikan “shadow” di Labelling (status Menunggu)
+        try:
+            ensure_labelling_shadow_from(produksi)
+        except Exception:
+            # jangan ganggu alur utama kalau gagal bikin shadow
+            pass
 
+    messages.success(request, f"Batch {produksi.nomor_batch} sekarang sedang diproses.")
     return redirect(reverse("monitoring_per_ruangan", args=[slugify(produksi.ruangan.nama)]))
+
 
 @login_required
 def pindahkan_batch_ke_ruangan_form(request, nomor_batch):
@@ -261,7 +267,9 @@ def pindahkan_batch_ke_ruangan_form(request, nomor_batch):
     return render(request, "produksi_monitoring/pindahkan_batch.html", {
         "produksi": produksi,
         "ruangan_list": Ruangan.objects.exclude(id=produksi.ruangan.id),
-        "operator_list": Operator.objects.all(),
+        "operator_list": Operator.objects.filter(
+            Q(kategori__iexact='Labelling') | Q(kategori__icontains='label')
+        ).order_by("nama"),
     })
 
 
@@ -301,7 +309,9 @@ def pilih_ruangan_proses(request):
     return render(request, "admin/pilih_ruangan.html", {
         "batch_list": batch_list,
         "ruangan_list": Ruangan.objects.exclude(nama__icontains="penimbangan"),
-        "operator_list": Operator.objects.all(),
+        "operator_list": Operator.objects.filter(
+            Q(kategori__iexact='Labelling') | Q(kategori__icontains='label')
+        ).order_by("nama"),
     })
 @login_required
 def update_progress(request, produksi_id):
@@ -335,7 +345,11 @@ def update_progress(request, produksi_id):
 
             produksi.progress += jumlah_terproses
             produksi.waktu_mulai_produksi = produksi.waktu_mulai_produksi or now()
-
+            try:
+                if "filling" in nama_ruangan:
+                    ensure_labelling_shadow_from(produksi)
+            except Exception:
+                pass
         # ✅ Cek jika progress sudah selesai → otomatis update
         if produksi.progress >= produksi.jumlah:
             produksi.progress = produksi.jumlah  # pastikan pas
@@ -430,7 +444,7 @@ def tandai_siap_dipindahkan(request, produksi_id):
 @login_required
 def tandai_selesai_labelling(request, nomor_batch):
     """Operator ruang labelling menandai batch selesai produksi."""
-    produksi = get_object_or_404(ProsesProduksi, nomor_batch=nomor_batch)
+    produksi = get_object_or_404(ProsesProduksi, nomor_batch=nomor_batch, ruangan__nama__icontains='labell',)
 
     if produksi.jumlah_kemasan is None or produksi.jumlah_kemasan <= 0:
         messages.error(request, "Silakan input jumlah kemasan sebelum menandai selesai!")
@@ -469,3 +483,115 @@ def monitoring_index(request):
         'ruang_labelling': ruang_labelling,
     }
     return render(request, 'monitoring/index.html', context)
+
+@login_required
+@require_POST
+def update_progress_labelling(request, pk):
+    """
+    Tambah jumlah_kemasan untuk batch di Ruang Labelling.
+
+    - Idempotensi: tolak duplikasi berdasarkan request id (rid)
+    - SOFT guard : jika > estimasi -> tetap diterima, ditandai overrun=True
+    - HARD cap   : jika > 150% dari estimasi -> ditolak (jika estimasi ada)
+    """
+    rid = (
+        request.POST.get("rid")
+        or request.headers.get("X-Request-ID")
+        or uuid.uuid4().hex
+    )
+
+    # default supaya aman jika return lebih awal
+    sisa_sebelum = None
+    sisa_setelah = None
+    overrun = False
+    estimasi = 0
+    tambah = 0
+
+    with transaction.atomic():
+        # --- Idempotensi ---
+        _, created = IdempotencyKey.objects.get_or_create(
+            key=rid, defaults={"action": "labelling_update"}
+        )
+        if not created:
+            return JsonResponse({"ok": True, "duplicate": True, "rid": rid})
+
+        # --- Lock row & validasi ruangan ---
+        proses = get_object_or_404(
+            ProsesProduksi.objects.select_for_update(), pk=pk
+        )
+        nama_ruang = (proses.ruangan.nama or "").lower()
+        if "labell" not in nama_ruang:
+            return JsonResponse(
+                {"ok": False, "message": "Hanya untuk Ruang Labelling", "rid": rid},
+                status=400,
+            )
+
+        # --- Ambil & validasi input jumlah ---
+        raw = request.POST.get("jumlah", request.POST.get("jumlah_kemasan", "0"))
+        try:
+            tambah = int(raw)
+        except (TypeError, ValueError):
+            return JsonResponse({"ok": False, "message": "Jumlah tidak valid", "rid": rid}, status=400)
+        if tambah <= 0:
+            return JsonResponse({"ok": False, "message": "Jumlah harus > 0", "rid": rid}, status=400)
+
+        # --- Ambil angka dasar ---
+        estimasi = int(proses.estimasi_jumlah_kemasan or 0)
+        current  = int(proses.jumlah_kemasan or 0)
+
+        # --- HARD cap 150% bila ada estimasi ---
+        allowed_tambahan = None
+        max_total150 = None
+        if estimasi:
+            max_total150 = int(estimasi * 1.5)
+            allowed_tambahan = max(0, max_total150 - current)
+            if tambah > allowed_tambahan:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "message": f"Melebihi batas akurasi 150%. Maks tambahan saat ini: {allowed_tambahan}.",
+                        "allowed_tambahan": allowed_tambahan,
+                        "rid": rid,
+                    },
+                    status=400,
+                )
+
+        # --- SOFT guard: tandai overrun bila > sisa (kalau estimasi ada) ---
+        # gunakan property sisa_kemasan jika tersedia
+        sisa_prop = getattr(proses, "sisa_kemasan", None)
+        try:
+            sisa_sebelum = int(sisa_prop) if sisa_prop is not None else None
+        except (TypeError, ValueError):
+            sisa_sebelum = None
+        overrun = bool(sisa_sebelum is not None and tambah > sisa_sebelum)
+
+        # --- Update nilai ---
+        new_total = current + tambah
+        proses.jumlah_kemasan = new_total
+
+        # auto set mulai produksi jika masih menunggu
+        if proses.status == "Menunggu":
+            proses.status = "Sedang Diproses"  # konsisten dengan template/logic lain
+            if not proses.waktu_mulai_produksi:
+                proses.waktu_mulai_produksi = now()
+
+        proses.save(update_fields=["jumlah_kemasan", "status", "waktu_mulai_produksi"])
+
+        # hitung sisa_setelah & allowed_tambahan baru untuk UI
+        if estimasi:
+            sisa_setelah = max(estimasi - new_total, 0)
+            allowed_tambahan = max(0, int(estimasi * 1.5) - new_total)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "rid": rid,
+            "ditambahkan": tambah,
+            "total_baru": int(proses.jumlah_kemasan or 0),
+            "sisa_sebelum": sisa_sebelum,
+            "sisa_setelah": sisa_setelah,
+            "overrun": overrun,
+            "max_total150": max_total150,           # total maksimum (bukan sisa)
+            "allowed_tambahan": allowed_tambahan,   # sisa ruang sampai 150% SESUDAH update
+        }
+    )

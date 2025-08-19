@@ -119,7 +119,7 @@
             <p id="current-time"></p>
             {% if request.user.is_authenticated %}
                 <p class="header-user">Selamat datang, <strong>{{ request.user.username }}</strong></p>
-            {% endif %}
+                {% endif %}
         </div>
     </header>
     <div>
@@ -194,73 +194,125 @@
                             <td>{{ produk.waktu_mulai_produksi|date:"d M Y, H:i" }}</td>
                             <td>
                                 {% if "labelling" in ruangan.nama|lower %}
-                                    <!-- Ruang Labelling: Input jumlah kemasan -->
-                                    <form method="POST" action="{% url 'update_progress' produk.id %}">
-                                        {% csrf_token %}
-                                        <input type="number" name="jumlah_kemasan" min="1" required placeholder="Jumlah pcs/karton">
-                                        <select name="satuan_kemasan" required>
-                                            <option value="pcs">pcs</option>
-                                            <option value="karton">karton</option>
-                                            <option value="pack">pack</option>
-                                        </select>
-                                        <button type="submit">Simpan</button>
-                                    </form>
+                                    {# --- Hitung batas 150% dengan aman di template --- #}
+                                    {% with estimasi=produk.estimasi_jumlah_kemasan|default:0 current=produk.jumlah_kemasan|default:0 %}
+                                    {% widthratio estimasi 100 150 as max_total150 %}     {# total maksimum = 150% estimasi #}
+                                    {% widthratio current -1 1 as neg_current %}          {# -current (trik widthratio) #}
+                                    {% with allowed150=max_total150|add:neg_current %}    {# sisa ruang sampai 150% #}
 
-                                    {% if produk.estimasi_jumlah_kemasan %}
-                                        {% with persen=produk.akurasi_persen|default:0 %}
-                                            <div style="width: 100%; background-color: #e0e0e0; border-radius: 4px;">
-                                                <div style="width: {{ persen }}%; background-color: #2196F3; padding: 3px 5px; color: white; border-radius: 4px;">
-                                                    {{ persen }}%
+                                        {# ------- FORM INPUT LABELLING (AJAX) ------- #}
+                                        <form method="POST"
+                                            action="{% url 'update_progress_labelling' produk.id %}"
+                                            class="js-labelling-form"
+                                            data-produk-id="{{ produk.id }}"
+                                            data-estimasi="{{ estimasi }}"
+                                            data-current="{{ current }}"
+                                            data-sisa="{{ produk.sisa_kemasan|default:0 }}"
+                                            data-allowed150="{{ allowed150|default:0 }}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="rid" value="">
+                                        <input type="number" name="jumlah" min="1"
+                                                {% if allowed150 > 0 %}max="{{ allowed150 }}"{% endif %}
+                                                required placeholder="Jumlah pcs/karton">
+                                        <button type="submit" class="btn-simpan">Simpan</button>
+
+                                        <small id="note-{{ produk.id }}"  style="display:none;color:#b45309;margin-left:.5rem;">
+                                            Melebihi estimasi. Masih ≤ 150%, bisa lanjut.
+                                        </small>
+                                        <small id="note150-{{ produk.id }}" style="display:none;color:#b91c1c;margin-left:.5rem;">
+                                            Melebihi batas akurasi 150%. Kurangi jumlahnya.
+                                        </small>
+                                        </form>
+
+                                        <small id="sisa-{{ produk.id }}">
+                                        Sisa target: {{ produk.sisa_kemasan|default:"-" }} {{ produk.get_satuan_kemasan_display }}
+                                        </small>
+
+                                        {% if estimasi %}
+                                            {# persen = (current / estimasi) * 100 #}
+                                            {% widthratio current|default:0 estimasi|default:1 100 as persen_calc %}
+                                            <div style="width:100%; background:#e0e0e0; border-radius:4px;">
+                                                <div id="bar-{{ produk.id }}"
+                                                    style="width:{{ persen_calc }}%; max-width:100%; background:#2196F3; color:#fff; padding:3px 5px; border-radius:4px;">
+                                                {{ persen_calc }}%
                                                 </div>
                                             </div>
-                                        {% endwith %}
-                                        <small><strong>{{ produk.jumlah_kemasan|default:0 }}</strong> / {{ produk.estimasi_jumlah_kemasan }} {{ produk.get_satuan_kemasan_display }}</small>
-                                    {% else %}
-                                        <small>
-                                            Realisasi: <strong>{{ produk.jumlah_kemasan|default:0 }} {{ produk.get_satuan_kemasan_display }}</strong>
-                                        </small>
-                                    {% endif %}
+                                            <small id="ratio-{{ produk.id }}"
+                                                    data-estimasi="{{ estimasi }}"
+                                                    data-unit="{{ produk.get_satuan_kemasan_display }}">
+                                                <strong>{{ current }}</strong> / {{ estimasi }} {{ produk.get_satuan_kemasan_display }}
+                                            </small>
+                                        {% else %}
+                                            <small id="ratio-{{ produk.id }}"
+                                                    data-estimasi="0"
+                                                    data-unit="{{ produk.get_satuan_kemasan_display }}">
+                                                Realisasi: <strong>{{ current }} {{ produk.get_satuan_kemasan_display }}</strong>
+                                            </small>
+                                        {% endif %}
 
-                                    <form method="POST" action="{% url 'tandai_selesai_labelling' produk.nomor_batch %}">
+                                        {# ------- FORM KHUSUS "TANDAI SELESAI" (dipisah agar tidak bentrok) ------- #}
+                                        <form id="finish-{{ produk.id }}"
+                                            method="POST"
+                                            action="{% url 'tandai_selesai_labelling' produk.nomor_batch %}">
                                         {% csrf_token %}
-                                        <button type="submit">Tandai Selesai</button>
-                                    </form>
+                                        </form>
+
+                                        {% if operator_list|length %}
+                                        <button type="button"
+                                                class="btn-modal-selesai"
+                                                data-url="{% url 'tandai_selesai_labelling' produk.nomor_batch %}"
+                                                data-batch="{{ produk.nomor_batch }}"
+                                                data-produk-id="{{ produk.id }}"
+                                                data-unit="{{ produk.get_satuan_kemasan_display }}"
+                                                data-estimasi="{{ estimasi }}"
+                                                data-current="{{ current }}"
+                                                data-operator-id="{{ produk.operator_id|default:'' }}">
+                                            Tandai Selesai
+                                        </button>
+                                        {% else %}
+                                        <button type="button" disabled title="Tambahkan operator Labelling dulu">
+                                            Tandai Selesai
+                                        </button>
+                                        {% endif %}
+
+
+                                    {% endwith %}
+                                    {% endwith %}
 
                                 {% else %}
-                                    <!-- Ruang lain: Input progress satuan -->
+                                    {# ------- Ruangan lain: input progress satuan ------- #}
                                     <form method="POST" action="{% url 'update_progress' produk.id %}">
-                                        {% csrf_token %}
-                                        <input type="number" name="jumlah_terproses" min="1"
+                                    {% csrf_token %}
+                                    <input type="number" name="jumlah_terproses" min="1"
                                             oninput="validasiJumlah(this, {{ produk.jumlah }}, {{ produk.progress }})"
                                             required>
-                                        <button type="submit">Update</button>
+                                    <button type="submit">Update</button>
                                     </form>
 
-                                    <div style="width: 100%; background-color: #e0e0e0; border-radius: 4px;">
-                                        <div style="width: {{ produk.progress_percentage }}%; background-color: #4caf50; padding: 2px 5px; color: white; border-radius: 4px;">
-                                            {{ produk.progress_percentage }}%
-                                        </div>
+                                    <div style="width:100%; background:#e0e0e0; border-radius:4px;">
+                                    <div style="width:{{ produk.progress_percentage }}%; background:#4caf50; color:#fff; padding:2px 5px; border-radius:4px;">
+                                        {{ produk.progress_percentage }}%
+                                    </div>
                                     </div>
                                     <small>{{ produk.progress }} / {{ produk.jumlah }} {{ produk.satuan }}</small>
 
                                     {% if "proses" in ruangan.nama|lower %}
-                                        {% if produk.status == "Sedang Diproses" and not produk.hasil_akhir %}
-                                            <form method="POST" action="{% url 'operator_tentukan_hasil_akhir' produk.id %}">
-                                                {% csrf_token %}
-                                                <select name="hasil_akhir" required>
-                                                    <option value="">-- Pilih Status Akhir --</option>
-                                                    <option value="Release">Release</option>
-                                                    <option value="Reject">Reject</option>
-                                                </select>
-                                                <button type="submit">Tandai</button>
-                                            </form>
-                                        {% elif produk.hasil_akhir %}
-                                            <small><strong>Hasil Akhir:</strong> {{ produk.hasil_akhir }}</small>
-                                        {% endif %}
+                                    {% if produk.status == "Sedang Diproses" and not produk.hasil_akhir %}
+                                        <form method="POST" action="{% url 'operator_tentukan_hasil_akhir' produk.id %}">
+                                        {% csrf_token %}
+                                        <select name="hasil_akhir" required>
+                                            <option value="">-- Pilih Status Akhir --</option>
+                                            <option value="Release">Release</option>
+                                            <option value="Reject">Reject</option>
+                                        </select>
+                                        <button type="submit">Tandai</button>
+                                        </form>
+                                    {% else %}
+                                        <small><strong>Hasil Akhir:</strong> {{ produk.hasil_akhir|default:"-" }}</small>
+                                    {% endif %}
                                     {% endif %}
                                 {% endif %}
                             </td>
-                        </tr>
                         {% empty %}
                         <tr><td colspan="6">Tidak ada proses produksi yang sedang diproses.</td></tr>
                         {% endfor %}
@@ -379,103 +431,386 @@
         </div>
     </div>
 {% endif %}
+{% if "labelling" in ruangan.nama|lower %}
+<!-- MODAL Tandai Selesai (reusable untuk semua baris) -->
+<div id="modal-selesai"
+     data-has-ops="{{ operator_list|length|default:0 }}"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:9999;">
+  <div style="background:#fff; width:min(520px,90vw); margin:10vh auto; border-radius:10px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
+    <h3 style="margin:0 0 10px;">Konfirmasi Selesai – <span id="m-batch"></span></h3>
+
+    <form id="form-selesai" method="POST" action="">
+      {% csrf_token %}
+      <input type="hidden" name="rid" value="">
+      <div style="text-align:left; display:grid; gap:10px;">
+        <label>
+          Operator penanda
+          <select name="penanda_operator_id" id="m-operator" required>
+            <option value="">-- Pilih operator --</option>
+            {% for op in operator_list %}
+              <option value="{{ op.id }}">{{ op.nama }}</option>
+            {% empty %}
+              <option value="" disabled>Tidak ada operator Labelling</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Total PCS akhir
+          <input type="number" name="final_total" id="m-final" min="1" required>
+        </label>
+
+        <small id="m-note150" style="display:none; color:#b91c1c;">
+          Melebihi batas akurasi 150%. Kurangi jumlahnya.
+        </small>
+        <small id="m-note-over" style="display:none; color:#b45309;">
+          Melebihi estimasi, tapi masih ≤150%. Tetap bisa dikonfirmasi.
+        </small>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" id="m-cancel">Batal</button>
+        <button type="submit" id="m-submit" style="background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px;">
+          Konfirmasi
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <script>
-    function updateDateTime() {
-        var now = new Date();
+document.addEventListener('DOMContentLoaded', () => {
+  // ========= utils =========
+  const getNum  = v => Number.parseInt(v ?? '0', 10) || 0;
+  const makeRID = () => (crypto.randomUUID
+    ? crypto.randomUUID()
+    : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+  const getCSRF = () => (document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1] ?? '');
 
-        var hari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-        var bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  // ========= helper UI (rasio / progress / sisa) =========
+  function updateUI(pid, totalBaru, estimasi, overrunFlag=false) {
+    const ratioEl = document.getElementById(`ratio-${pid}`);
+    const barEl   = document.getElementById(`bar-${pid}`);
+    const sisaEl  = document.getElementById(`sisa-${pid}`);
 
-        var namaHari = hari[now.getDay()];
-        var tanggal = now.getDate();
-        var namaBulan = bulan[now.getMonth()];
-        var tahun = now.getFullYear();
-        var jam = now.getHours().toString().padStart(2, '0');
-        var menit = now.getMinutes().toString().padStart(2, '0');
-        var detik = now.getSeconds().toString().padStart(2, '0');
+    const unit = (ratioEl?.dataset?.unit)
+              || (sisaEl?.textContent?.trim().split(/\s+/).pop()) || '';
 
-        var waktuFormatted = `${namaHari}, ${tanggal} ${namaBulan} ${tahun} ${jam}:${menit}:${detik}`;
-        document.getElementById("tanggal-waktu").innerText = waktuFormatted;
+    if (ratioEl) {
+      if (estimasi > 0) {
+        ratioEl.dataset.estimasi = String(estimasi);
+        ratioEl.innerHTML = `<strong>${totalBaru}</strong> / ${estimasi} ${unit}`;
+      } else {
+        ratioEl.innerHTML = `Realisasi: <strong>${totalBaru} ${unit}</strong>`;
+      }
     }
 
-    setInterval(updateDateTime, 5000);
-    updateDateTime();
-
-    function validasiJumlah(input, jumlah, progress) {
-        const sisa = jumlah - progress;
-        const nilai = parseInt(input.value);
-
-        if (nilai > sisa) {
-            alert("Jumlah yang dimasukkan melebihi sisa proses.\nMaksimal hanya " + sisa + " lagi.");
-            input.value = sisa;
-        }
+    if (barEl && estimasi > 0) {
+      const p = Math.min(Math.round((totalBaru / estimasi) * 100), 100);
+      barEl.style.width = `${p}%`;
+      barEl.textContent = `${p}%`;
     }
 
- // Fungsi untuk mengupdate tabel dengan data terbaru
- function updateTable(data) {
-        const tbody = document.getElementById('produksi-tbody');
-        tbody.innerHTML = '';  // Kosongkan tabel sebelumnya
+    if (sisaEl && estimasi > 0) {
+      const sisaAfter = Math.max(estimasi - totalBaru, 0);
+      sisaEl.textContent = `Sisa target: ${sisaAfter} ${unit}`;
+      const over = (totalBaru > estimasi) || overrunFlag;
+      sisaEl.style.color = over ? 'red' : '';
+      sisaEl.title = over ? 'Realisasi melebihi estimasi' : '';
+    }
+  }
 
-        data.forEach((produk) => {
-            const row = document.createElement('tr');
-            
-            // Buat elemen td untuk setiap kolom
-            const tdBatch = document.createElement('td');
-            tdBatch.innerText = produk.nomor_batch;
+  // ========= INISIALISASI FORM LABELLING (AJAX) =========
+  document.querySelectorAll('.js-labelling-form, .labelling-form').forEach((form) => {
+    const input = form.querySelector('input[name="jumlah"]');
+    const btn   = form.querySelector('.btn-simpan') || form.querySelector('button[type="submit"]');
+    const pid   = form.dataset.produkId;
 
-            const tdProduk = document.createElement('td');
-            tdProduk.innerText = produk.nama_produk;
+    const note    = document.getElementById(`note-${pid}`);
+    const note150 = document.getElementById(`note150-${pid}`);
 
-            const tdJumlah = document.createElement('td');
-            tdJumlah.innerText = produk.jumlah;
+    const estimasi = getNum(form.dataset.estimasi); // 0 jika belum ada estimasi
+    if (form.dataset.current == null) form.dataset.current = '0';
 
-            const tdWaktuSelesai = document.createElement('td');
-            tdWaktuSelesai.innerText = produk.waktu_selesai;
-
-            const tdOperator = document.createElement('td');
-            tdOperator.innerText = produk.operator;
-
-            const tdHasilAkhir = document.createElement('td');
-            tdHasilAkhir.innerText = produk.hasil_akhir ? produk.hasil_akhir : '-';
-
-            // Gabungkan semua td ke dalam satu row
-            row.appendChild(tdBatch);
-            row.appendChild(tdProduk);
-            row.appendChild(tdJumlah);
-            row.appendChild(tdWaktuSelesai);
-            row.appendChild(tdOperator);
-            row.appendChild(tdHasilAkhir);
-
-            // Tambahkan row ke dalam tbody
-            tbody.appendChild(row);
-        });
+    // hitung sisa awal jika belum ada
+    if (form.dataset.sisa == null && estimasi) {
+      const cur = getNum(form.dataset.current);
+      form.dataset.sisa = String(Math.max(estimasi - cur, 0));
     }
 
-    // Fungsi untuk mengambil data dari server menggunakan AJAX
-    function fetchData() {
-        fetch('/get_produksi_data/')  // Endpoint untuk mendapatkan data produksi
-            .then(response => response.json())
-            .then(data => {
-                updateTable(data);  // Update tabel dengan data terbaru
-            })
-            .catch(error => console.error('Error fetching data:', error));
+    // set batas awal 150% (hard cap) + input.max (kalau >0)
+    if (estimasi) {
+      const cur = getNum(form.dataset.current);
+      const allowed = Math.max(Math.floor(estimasi * 1.5 - cur), 0);
+      form.dataset.allowed150 = String(allowed);
+      if (input && allowed > 0) input.max = String(allowed);
+      else if (input) input.removeAttribute('max');
     }
 
-    // Polling setiap 5 detik untuk mendapatkan data terbaru
-    setInterval(fetchData, 5000);  // Sesuaikan dengan interval waktu yang Anda inginkan
-    fetchData();  // Panggil sekali saat halaman dimuat
-    // Coba masuk fullscreen saat load (jika diizinkan browser)
-    document.addEventListener('DOMContentLoaded', () => {
-        const elem = document.documentElement;
+    // peringatan realtime
+    input?.addEventListener('input', () => {
+      const val        = getNum(input.value);
+      const sisa       = getNum(form.dataset.sisa);
+      const allowed150 = (form.dataset.allowed150 != null) ? getNum(form.dataset.allowed150) : null;
 
-        if (elem.requestFullscreen) {
-            elem.requestFullscreen().catch(err => {
-                console.warn('Fullscreen gagal:', err);
-            });
-        } else if (elem.webkitRequestFullscreen) {
-            elem.webkitRequestFullscreen();
-        } else if (elem.msRequestFullscreen) {
-            elem.msRequestFullscreen();
-        }
+      if (note150) note150.style.display = (allowed150 !== null && val > allowed150) ? 'inline' : 'none';
+      if (note)    note.style.display    = (sisa && val > sisa && (allowed150 === null || val <= allowed150)) ? 'inline' : 'none';
     });
+
+    // submit via fetch + idempotensi
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!input) return;
+
+      const val = getNum(input.value);
+      if (val <= 0) return;
+
+      // selalu set request id baru (hindari dianggap duplikat)
+      let rid = form.querySelector('input[name="rid"]');
+      if (!rid) {
+        rid = document.createElement('input');
+        rid.type = 'hidden';
+        rid.name = 'rid';
+        form.appendChild(rid);
+      }
+      rid.value = makeRID();
+
+      // HARD: blokir jika > 150%
+      const allowed150 = (form.dataset.allowed150 != null) ? getNum(form.dataset.allowed150) : null;
+      if (allowed150 !== null && val > allowed150) {
+        alert(`Melebihi batas akurasi 150%. Maksimal tambahan saat ini: ${allowed150}.`);
+        return;
+      }
+
+      // SOFT: konfirmasi jika > estimasi (tetap boleh)
+      const sisa = getNum(form.dataset.sisa);
+      if (sisa && val > sisa) {
+        const ok = confirm(`Input ${val} melebihi estimasi (${sisa}). Tetap simpan?`);
+        if (!ok) return;
+      }
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan...'; }
+
+      try {
+        const fd = new FormData(form);
+        const res  = await fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': getCSRF(),
+            'X-Request-ID': rid.value,
+            'Accept': 'application/json'
+          },
+          body: fd
+        });
+
+        let data = {};
+        try { data = await res.json(); } catch (_) { data = {}; }
+
+        if (!res.ok) {
+          if (data.allowed_tambahan != null) {
+            const newAllowed = Math.max(getNum(data.allowed_tambahan), 0);
+            form.dataset.allowed150 = String(newAllowed);
+            if (input) {
+              if (newAllowed > 0) input.max = String(newAllowed);
+              else input.removeAttribute('max');
+            }
+          }
+          alert(data.message || 'Gagal menyimpan.');
+          return;
+        }
+
+        // duplicate → tidak ada perubahan server; reset field saja
+        if (data.duplicate) {
+          input.value = '';
+          if (note) note.style.display = 'none';
+          if (note150) note150.style.display = 'none';
+          return;
+        }
+
+        if (!data.ok) {
+          alert(data.message || 'Gagal menyimpan.');
+          return;
+        }
+
+        // sukses → hitung total baru
+        const currentBefore = getNum(form.dataset.current);
+        const totalBaru = (typeof data.total_baru === 'number')
+          ? data.total_baru
+          : (currentBefore + val);
+
+        form.dataset.current = String(totalBaru);
+
+        // recalc sisa & allowed150 bila ada estimasi
+        if (estimasi) {
+          const sisaAfter = Math.max(estimasi - totalBaru, 0);
+          form.dataset.sisa = String(sisaAfter);
+
+          const newAllowed = Math.max(Math.floor(estimasi * 1.5 - totalBaru), 0);
+          form.dataset.allowed150 = String(newAllowed);
+          if (input) {
+            if (newAllowed > 0) input.max = String(newAllowed);
+            else input.removeAttribute('max');
+          }
+        }
+
+        // sinkron tampilan
+        updateUI(pid, totalBaru, estimasi, Boolean(data.overrun));
+
+        // reset input & hide notes
+        input.value = '';
+        if (note) note.style.display = 'none';
+        if (note150) note150.style.display = 'none';
+      } catch (err) {
+        console.error(err);
+        alert('Terjadi kesalahan jaringan.');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Simpan'; }
+      }
+    });
+  });
+
+  // ========= MODAL "Tandai Selesai" =========
+  const modal     = document.getElementById('modal-selesai');
+  const formModal = document.getElementById('form-selesai');
+  const mBatch    = document.getElementById('m-batch');
+  const mOperator = document.getElementById('m-operator');
+  const mFinal    = document.getElementById('m-final');
+  const note150   = document.getElementById('m-note150');
+  const noteOver  = document.getElementById('m-note-over');
+  const btnCancel = document.getElementById('m-cancel');
+  const btnSubmit = document.getElementById('m-submit');
+
+  const showModal = () => { if (modal) modal.style.display = 'block'; };
+  const hideModal = () => {
+    if (!modal) return;
+    modal.style.display = 'none';
+    formModal?.reset();
+    if (note150) note150.style.display = 'none';
+    if (noteOver) noteOver.style.display = 'none';
+    if (mFinal) { mFinal.removeAttribute('max'); mFinal.removeAttribute('min'); }
+  };
+
+  function validateFinal(estimasi) {
+    if (!mFinal) return true;
+    const est = getNum(estimasi);
+    const val = getNum(mFinal.value);
+    if (note150) note150.style.display = 'none';
+    if (noteOver) noteOver.style.display = 'none';
+
+    if (est > 0) {
+      const max150 = Math.floor(est * 1.5);
+      if (val > max150) { // hard stop
+        if (note150) note150.style.display = 'inline';
+        return false;
+      }
+      if (val > est) { // soft warning
+        if (noteOver) noteOver.style.display = 'inline';
+      }
+    }
+    return true;
+  }
+  // buka modal (event delegation)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.btn-modal-selesai');
+  if (!btn || !modal || !formModal) return;
+
+  // ⛔ cegah kalau tidak ada operator labelling
+  const hasOps = Number(document.getElementById('modal-selesai')?.dataset?.hasOps || '0');
+  if (!hasOps) {
+    alert('Tidak ada operator Labelling. Tambahkan dulu di master data.');
+    return;
+  }
+
+  e.preventDefault();
+
+  const url      = btn.dataset.url;
+  const batch    = btn.dataset.batch || '';
+  const pid      = btn.dataset.produkId || '';
+  const estimasi = getNum(btn.dataset.estimasi);
+  const current  = getNum(btn.dataset.current);
+  const opId     = btn.dataset.operatorId || ''; // ← dari data-operator-id
+
+  formModal.action   = url;
+  formModal.dataset.pid = pid;
+  formModal.dataset.estimasi = String(estimasi);
+  formModal.dataset.current  = String(current);
+
+  if (mBatch) mBatch.textContent = batch;
+
+  // preselect operator jika ada
+  if (mOperator && opId) mOperator.value = opId;
+
+  if (mFinal) {
+    mFinal.value = current > 0 ? current : '';
+    mFinal.min   = Math.max(current, 1).toString();
+    if (estimasi > 0) mFinal.max = String(Math.floor(estimasi * 1.5));
+    else mFinal.removeAttribute('max');
+  }
+
+  if (note150) note150.style.display = 'none';
+  if (noteOver) noteOver.style.display = 'none';
+
+  showModal();
+  setTimeout(() => mFinal?.focus(), 50);
+});
+
+
+
+  // tutup modal
+  btnCancel?.addEventListener('click', hideModal);
+  modal?.addEventListener('click', (e) => { if (e.target === modal) hideModal(); });
+
+  // validasi live
+  mFinal?.addEventListener('input', () => {
+    const est = getNum(formModal?.dataset?.estimasi);
+    validateFinal(est);
+  });
+
+  // submit modal via fetch
+  formModal?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!formModal) return;
+
+    const est = getNum(formModal.dataset.estimasi || '0');
+    const cur = getNum(formModal.dataset.current || '0');
+
+    if (!validateFinal(est)) { alert('Total melewati batas 150% dari estimasi.'); return; }
+    if (!mOperator?.value) { alert('Pilih operator terlebih dahulu.'); return; }
+    if (!mFinal?.value || getNum(mFinal.value) < Math.max(cur, 1)) {
+      alert('Total akhir tidak valid.'); return;
+    }
+
+    const fd = new FormData(formModal);
+    fd.set('rid', makeRID()); // idempotensi
+    fd.set('final_total', String(getNum(mFinal.value)));
+
+    btnSubmit.disabled = true; btnSubmit.textContent = 'Menyimpan...';
+    try {
+      const res  = await fetch(formModal.action, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCSRF(), 'Accept': 'application/json' },
+        body: fd
+      });
+
+      // kalau server balas non-JSON, anggap sukses kalau status OK
+      let data = {};
+      try { data = await res.json(); } catch (_) { data = { ok: res.ok }; }
+
+      if (!res.ok || !data.ok) {
+        alert(data.message || 'Gagal menandai selesai.');
+        return;
+      }
+
+      hideModal();
+      // paling simpel: refresh
+      location.reload();
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan jaringan.');
+    } finally {
+      btnSubmit.disabled = false; btnSubmit.textContent = 'Konfirmasi';
+    }
+  });
+});
 </script>
